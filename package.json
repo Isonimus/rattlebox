@@ -1,0 +1,9 @@
+{
+  "name": "esp32-rattlebox",
+  "private": true,
+  "description": "Task runner for the doc tooling; the firmware itself builds with PlatformIO",
+  "scripts": {
+    "lint": "node scripts/lint-docs.mjs .",
+    "index": "node scripts/build-index.mjs ."
+  }
+}
