@@ -5,7 +5,10 @@ Plus 2 in which 3D-rendered dice tumble inside the device, driven by its IMU. Wh
 and in what order is in [`docs/roadmap.md`](docs/roadmap.md).
 
 Stack: C++ on the Arduino core 3.3.7 (pioarduino platform 55.03.37), PlatformIO, LovyanGFX;
-host tests in PlatformIO's `native` env with Unity; doc tooling on Node (ADR-0001).
+host tests in PlatformIO's `native` env with Unity; doc tooling on Node (ADR-0001). Code from
+others compiled into the firmware, and what its license asks of a binary release, is listed in
+[`docs/third-party-notices.md`](docs/third-party-notices.md); adding, removing or upgrading such
+code updates it in the same commit.
 
 General working practices — quality bar, testing standard, commit hygiene, delegation,
 correction, language — live in [`docs/quality-bar.md`](docs/quality-bar.md) and apply here

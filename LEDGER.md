@@ -20,6 +20,8 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 - [deferred] No CI builds both envs yet, so invariant #1 holds by review alone (ADR-0001)
 - [feature] The host fairness test (invariant #2) does not exist yet; the M0 fairness probe becomes it (ADR-0002)
 - [feature] No regression test yet asserts that a locked result never changes (invariant #3) (ADR-0002)
+- [deferred] No binary release exists yet; the first one must meet the binary-distribution conditions in `docs/third-party-notices.md` (Bosch and LovyanGFX notices bundled, LGPL relinking for the Arduino core) (ADR-0001)
+- [deferred] Slice 0003 awaits its M5StickC Plus2 device check (`npm run verify:skeleton -- --env m5stickc-plus2`), which sets `STICKC_AXIS_MAP`, exercises the esptool reset through the CH9102 and the GPIO 37/39 buttons; its As built is written after it. The Cardputer ADV passed on 2026-10-22 with the identity axis map: rest 0.999 g at 50 Hz, noise std dev at most 0.0011 g and 0.074 dps, twist peak 569 dps, shake peak 4.1 g (ADR-0003)
 - [deferred] On-device checks (`*-verify.mjs` device halves) need a board on the port and no hardware-in-the-loop runner exists, so CI runs only their parsing tests (ADR-0003)
 
 ## Resolved

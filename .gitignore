@@ -1,0 +1,19 @@
+# === PlatformIO ===
+.pio/
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.swp
+*~
+
+# === OS files ===
+.DS_Store
+
+# Screenshots written by scripts/capture_screen.py
+shots/
+# Device-check output written by scripts/skeleton-verify.mjs
+artifacts/
+
+# Python bytecode from running the host scripts and their tests
+__pycache__/
