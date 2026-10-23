@@ -31,11 +31,23 @@ struct RollOutcome {
     bool      settled;
 };
 
+bool everyDieLocked(const DieResult* results, uint8_t dieCount);
+
+/**
+ * @brief Advance every die's result by one step, nudging each die that came to rest cocked and
+ * starting its result over, as the product does. Returns how many dice were nudged.
+ */
+uint8_t advanceResults(World& world, DieResult* results, UniformSource& source, const RestThresholds& thresholds);
+
 /**
  * @brief One roll left alone on a level tray, as ADR-0002's fairness test runs it: launch,
  * then step until every die is locked, nudging any that come to rest cocked, or until @p timeLimitS.
  */
 RollOutcome simulateRoll(const DieShape& shape, uint8_t dieCount, UniformSource& source,
                          const RestThresholds& thresholds, float timeLimitS, StepObserver* observer);
+
+/** @brief simulateRoll in a World the caller keeps, with its shape set, so the dice can be rolled again from where they rest. */
+RollOutcome simulateRollIn(World& world, uint8_t dieCount, UniformSource& source, const RestThresholds& thresholds,
+                           float timeLimitS, StepObserver* observer);
 
 #endif // SIMULATED_ROLL_H

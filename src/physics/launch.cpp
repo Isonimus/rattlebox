@@ -46,15 +46,21 @@ void launchDice(World& world, const Tray& tray, uint8_t dieCount, UniformSource&
         body.position = {between(source, stripStart + radius, stripStart + stripWidth - radius),
                          between(source, radius, tray.depthMm - radius), radius + DROP_HEIGHT_MM};
         body.orientation = uniformOrientation(source);
-        // One draw per statement: the two operands of an expression are evaluated in no set
-        // order, and a different order would make the same seed roll differently per compiler.
-        const Vec3 throwDirection = uniformDirection(source);
-        const float throwSpeed = between(source, THROW_MIN_MM_PER_S, THROW_MAX_MM_PER_S);
-        const Vec3 spinAxis = uniformDirection(source);
-        const float spin = between(source, SPIN_MIN_RAD_PER_S, SPIN_MAX_RAD_PER_S);
-        body.velocity = throwDirection * throwSpeed;
-        body.angularVelocity = spinAxis * spin;
+        body.velocity = {0, 0, 0};
+        body.angularVelocity = {0, 0, 0};
+        throwDie(body, source);
     }
+}
+
+void throwDie(DieBody& body, UniformSource& source) {
+    // One draw per statement: the two operands of an expression are evaluated in no set order,
+    // and a different order would make the same seed roll differently per compiler.
+    const Vec3 throwDirection = uniformDirection(source);
+    const float throwSpeed = between(source, THROW_MIN_MM_PER_S, THROW_MAX_MM_PER_S);
+    const Vec3 spinAxis = uniformDirection(source);
+    const float spin = between(source, SPIN_MIN_RAD_PER_S, SPIN_MAX_RAD_PER_S);
+    body.velocity = body.velocity + throwDirection * throwSpeed;
+    body.angularVelocity = body.angularVelocity + spinAxis * spin;
 }
 
 void nudgeCockedDie(DieBody& body, UniformSource& source) {

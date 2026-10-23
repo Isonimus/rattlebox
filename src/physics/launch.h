@@ -30,6 +30,13 @@ Vec3 uniformDirection(UniformSource& source);
 void launchDice(World& world, const Tray& tray, uint8_t dieCount, UniformSource& source);
 
 /**
+ * @brief Add a throw to @p body: a speed in a uniformly random direction and a spin about a random
+ * axis, from ADR-0009's ranges. A launch throws dice from rest; a throw can also land on dice
+ * already moving.
+ */
+void throwDie(DieBody& body, UniformSource& source);
+
+/**
  * @brief Knock a die that came to rest cocked: a hop in a random upward direction and a spin
  * about a random axis, both from @p source, so it falls again and can land flat.
  *
