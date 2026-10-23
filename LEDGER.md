@@ -18,8 +18,6 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 
 <!-- One line per open item. Delete the line to close it; the git log is the done-record. -->
 - [deferred] No CI builds both envs yet, so invariant #1 holds by review alone (ADR-0001)
-- [feature] The host fairness test (invariant #2) does not exist yet; the M0 fairness probe becomes it (ADR-0002)
-- [feature] No regression test yet asserts that a locked result never changes (invariant #3) (ADR-0002)
 - [deferred] No binary release exists yet; the first one must meet the binary-distribution conditions in `docs/third-party-notices.md` (Bosch and LovyanGFX notices bundled, LGPL relinking for the Arduino core) (ADR-0001)
 - [audit] The `m5stickc-plus2` env builds for the generic `esp32dev` variant; its flash size and PSRAM settings were never compared with the Plus 2's, only shown to boot and run the skeleton (ADR-0003)
 - [bug] One handheld StickC boot failed `imu FAILED: no ACK at 0x68` (ESP-IDF error 259) on 2026-10-23; it did not recur in over 300 desk resets or two handheld runs, so the cause is unknown (ADR-0003)
@@ -28,6 +26,8 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 - [audit] One of 40 Cardputer product boots at ADR-0005's settings, after the `delayAtLeastMs` fix, showed no `[boot] imu OK` line within 5 s on 2026-10-23; its log was not kept, so an IMU failure and a monitor that missed the line after USB re-enumeration are both open (ADR-0005)
 - [feature] The product's frame loop is not built: two canvases with the DMA push overlapping the next frame's drawing, paced to 60 fps; the roll slice builds it and checks whether an unsynchronised push tears (ADR-0007)
 - [audit] With the second canvas, the StickC's largest free DMA block falls from 110,580 to about 45,000 bytes, measured with only the display up; the heap with audio, physics and the IMU running beside both canvases is unmeasured (ADR-0007)
+- [feature] The physics is not yet in the product: the roll slice runs four 1/240 s steps per frame, launches from `esp_random()` with an entropy source on, nudges cocked dice, measures a step's cost on the StickC, checks whether a speculative contact's early bounce (up to about 15 mm) shows, and shows each locked result, since about 1 D20 in 500 in a three-die roll is knocked onto another face after it locks (ADR-0009)
+- [audit] Host GCC 13.3 miscompiled the launch at -O2 through modref; the firmware's GCC 14.2 looked right in its modref dumps but has never run the physics, so a device capture must show locked results matching the face up (ADR-0009)
 - [deferred] On-device checks (`*-verify.mjs` device halves) need a board on the port and no hardware-in-the-loop runner exists, so CI runs only their parsing tests (ADR-0003)
 
 ## Resolved

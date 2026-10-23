@@ -16,7 +16,8 @@ other, hold it still and they settle. The face each die rests on is its result.
   performance budget.
 - **Fairness**: results come from the simulated physics, the launch is randomized from the
   hardware RNG, and each die type's fairness is measured on the host before it ships
-  (ADR-0002). A result locks when its die first comes to rest.
+  (ADR-0002). A result locks when its die first comes to rest lying flat; a die that comes to
+  rest propped on a wall or another die gets a random nudge until it lies flat (ADR-0009).
 - **One engine, two inputs**: a shake is an impulse and a tilt is the gravity vector. Shaking
   without tilting is the same tray with no sideways gravity.
 
@@ -56,7 +57,8 @@ board is captured from shake to locked result.
 
 - **D4, D8, D10, D12 and d% (percentile)**, added as geometry data. D4 is read from its top
   vertex and D10 counts 0 to 9, so each brings its own result-reading rule, and each passes
-  the fairness test before it ships (ADR-0002).
+  the fairness test before it ships (ADR-0002, ADR-0009). D12's pentagonal faces raise the
+  shape's corner limit (`src/geometry/die_shape.h`).
 - **Dice notation on the Cardputer**: `3d6+2`, `2d20kh1` (advantage), `4d6dl1`. Typing an
   expression is the one thing a keyboard device does better than a phone. The StickC
   cycles saved presets instead.

@@ -1,0 +1,214 @@
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "../../geometry/die_shape.h"
+#include "../../physics/die_result.h"
+#include "../../physics/physics_config.h"
+#include "seeded_source.h"
+#include "simulated_roll.h"
+
+// The fairness probe (slice 0008), a host program. scripts/fairness-probe.mjs runs it.
+//
+//   trace <D6|D20> <rolls> <seed>         one die per roll, left to move for TRACE_SECONDS with
+//                                         nothing locking, to measure what the rest thresholds,
+//                                         hold time and cocked tolerance are chosen from
+//   tally <D6|D20> <dice> <rolls> <seed>  rolls through the product's thresholds, counting results
+//
+// Each prints one line per roll (trace) or per run (tally) for the host to aggregate.
+
+namespace {
+
+constexpr int EXIT_USAGE = 2;
+constexpr float RAD_TO_DEG = 57.2957795f;
+// Long enough that every die has been still for seconds: thrown dice came to rest in under half
+// a second in the design's experiments.
+constexpr float TRACE_SECONDS = 6.0f;
+constexpr uint32_t TRACE_STEPS = stepsIn(TRACE_SECONDS);
+// The last second of a trace shows how still a die resting on a face gets: the floor the
+// thresholds must sit above.
+constexpr uint32_t FLOOR_STEPS = stepsIn(1.0f);
+// A tally roll still moving after this long has a die the physics never brings to rest.
+constexpr float TALLY_TIME_LIMIT_S = 20.0f;
+// Nothing locks while tracing, so every step of the roll is recorded.
+constexpr RestThresholds NEVER_LOCK{0, 0, TRACE_SECONDS * 2, 0};
+
+// The candidate thresholds a trace measures against: from below the resting floor to well
+// above a die rocking on an edge.
+constexpr float CANDIDATE_LINEAR_MM_PER_S[] = {1, 2, 5, 10, 20};
+constexpr float CANDIDATE_ANGULAR_RAD_PER_S[] = {0.1f, 0.2f, 0.5f, 1, 2};
+constexpr size_t LINEAR_CANDIDATES = sizeof(CANDIDATE_LINEAR_MM_PER_S) / sizeof(CANDIDATE_LINEAR_MM_PER_S[0]);
+constexpr size_t ANGULAR_CANDIDATES = sizeof(CANDIDATE_ANGULAR_RAD_PER_S) / sizeof(CANDIDATE_ANGULAR_RAD_PER_S[0]);
+
+struct TraceStep {
+    float   linearMmPerS;
+    float   angularRadPerS;
+    uint8_t upFace;
+    float   tiltRad;
+};
+
+/** @brief Records the one die of a trace roll, every step. */
+class TraceRecorder : public StepObserver {
+public:
+    explicit TraceRecorder(const DieShape& shape) : _shape(shape) {}
+
+    void onStep(const World& world) override {
+        if (_count >= TRACE_STEPS) abort();
+        const DieBody& body = world.dice[0];
+        const UpFace top = upFace(_shape, body.orientation);
+        _steps[_count++] = {length(body.velocity), length(body.angularVelocity), top.face, top.tiltRad};
+    }
+
+    uint32_t count() const { return _count; }
+    const TraceStep& at(uint32_t step) const { return _steps[step]; }
+
+private:
+    const DieShape& _shape;
+    TraceStep       _steps[TRACE_STEPS];
+    uint32_t        _count = 0;
+};
+
+/** @brief The last step at which the die's up face differed from the step before it. */
+uint32_t lastFaceChange(const TraceRecorder& trace) {
+    uint32_t last = 0;
+    for (uint32_t step = 1; step < trace.count(); step++) {
+        if (trace.at(step).upFace != trace.at(step - 1).upFace) last = step;
+    }
+    return last;
+}
+
+/**
+ * @brief The longest stretch below both thresholds that began before the up face's last change:
+ * a die that paused that long and then tipped onto another face. A hold time must outlast it,
+ * or the die would lock to a face it then left.
+ */
+float longestFalseRestS(const TraceRecorder& trace, uint32_t lastChange, float linear, float angular) {
+    uint32_t longest = 0;
+    uint32_t run = 0;
+    for (uint32_t step = 0; step < lastChange; step++) {
+        const TraceStep& here = trace.at(step);
+        run = (here.linearMmPerS < linear && here.angularRadPerS < angular) ? run + 1 : 0;
+        if (run > longest) longest = run;
+    }
+    return longest * PHYSICS_STEP_S;
+}
+
+bool parseShape(const char* name, DieShape& shape) {
+    if (strcmp(name, "D6") == 0) {
+        shape = makeD6(D6_EDGE_MM);
+        return true;
+    }
+    if (strcmp(name, "D20") == 0) {
+        shape = makeD20(D20_EDGE_MM);
+        return true;
+    }
+    return false;
+}
+
+bool parseCount(const char* text, unsigned long& value) {
+    char* end = nullptr;
+    value = strtoul(text, &end, 10);
+    return end != text && *end == '\0' && value > 0;
+}
+
+int usage() {
+    fprintf(stderr, "usage: fairness_probe trace <D6|D20> <rolls> <seed>\n"
+                    "       fairness_probe tally <D6|D20> <dice 1-%u> <rolls> <seed>\n",
+            static_cast<unsigned>(MAX_DICE));
+    return EXIT_USAGE;
+}
+
+double secondsSince(clock_t start) { return static_cast<double>(clock() - start) / CLOCKS_PER_SEC; }
+
+int runTrace(const char* name, const DieShape& shape, unsigned long rolls, unsigned long seed) {
+    printf("[trace-grid] linear=");
+    for (size_t i = 0; i < LINEAR_CANDIDATES; i++) printf(i ? ",%g" : "%g", CANDIDATE_LINEAR_MM_PER_S[i]);
+    printf(" angular=");
+    for (size_t i = 0; i < ANGULAR_CANDIDATES; i++) printf(i ? ",%g" : "%g", CANDIDATE_ANGULAR_RAD_PER_S[i]);
+    printf("\n");
+
+    SeededSource source(seed);
+    for (unsigned long roll = 0; roll < rolls; roll++) {
+        TraceRecorder recorder(shape);
+        const TraceRecorder* trace = &recorder;
+        simulateRoll(shape, 1, source, NEVER_LOCK, TRACE_SECONDS, &recorder);
+        float floorLinear = 0;
+        float floorAngular = 0;
+        for (uint32_t step = trace->count() - FLOOR_STEPS; step < trace->count(); step++) {
+            floorLinear = fmaxf(floorLinear, trace->at(step).linearMmPerS);
+            floorAngular = fmaxf(floorAngular, trace->at(step).angularRadPerS);
+        }
+        const uint32_t lastChange = lastFaceChange(*trace);
+        printf("[trace] die=%s roll=%lu final_tilt_deg=%.4f last_face_change_s=%.4f floor_linear=%.6f "
+               "floor_angular=%.6f false_rest_s=",
+               name, roll, trace->at(trace->count() - 1).tiltRad * RAD_TO_DEG, lastChange * PHYSICS_STEP_S,
+               floorLinear, floorAngular);
+        bool first = true;
+        for (float linear : CANDIDATE_LINEAR_MM_PER_S) {
+            for (float angular : CANDIDATE_ANGULAR_RAD_PER_S) {
+                printf(first ? "%.4f" : ",%.4f", longestFalseRestS(*trace, lastChange, linear, angular));
+                first = false;
+            }
+        }
+        printf("\n");
+    }
+    return 0;
+}
+
+int runTally(const char* name, const DieShape& shape, uint8_t dice, unsigned long rolls, unsigned long seed) {
+    SeededSource source(seed);
+    unsigned long counts[DIE_MAX_FACES + 1] = {};
+    unsigned long nudges = 0;
+    unsigned long mostNudges = 0;
+    unsigned long unsettled = 0;
+    unsigned long onLaunchFace = 0;
+    unsigned long knockedOver = 0;
+    double totalS = 0;
+    float longestS = 0;
+    const clock_t start = clock();
+    for (unsigned long roll = 0; roll < rolls; roll++) {
+        const RollOutcome outcome = simulateRoll(shape, dice, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S, nullptr);
+        if (!outcome.settled) unsettled++;
+        nudges += outcome.nudges;
+        if (outcome.nudges > mostNudges) mostNudges = outcome.nudges;
+        totalS += outcome.seconds;
+        longestS = fmaxf(longestS, outcome.seconds);
+        for (uint8_t die = 0; die < dice; die++) {
+            const DieResult& result = outcome.results[die];
+            if (result.state != DieState::Locked) continue;
+            counts[result.numeral]++;
+            if (result.numeral == outcome.launchNumerals[die]) onLaunchFace++;
+            if (result.numeral != outcome.shownNumerals[die]) knockedOver++;
+        }
+    }
+    printf("[tally] die=%s dice=%u rolls=%lu seed=%lu counts=", name, static_cast<unsigned>(dice), rolls, seed);
+    for (uint8_t numeral = 1; numeral <= shape.faceCount; numeral++) printf(numeral > 1 ? ",%lu" : "%lu", counts[numeral]);
+    printf(" nudges=%lu most_nudges_in_a_roll=%lu unsettled=%lu on_launch_face=%lu knocked_over=%lu "
+           "mean_roll_s=%.4f longest_roll_s=%.4f runtime_s=%.3f\n",
+           nudges, mostNudges, unsettled, onLaunchFace, knockedOver, totalS / rolls, longestS, secondsSince(start));
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc < 2) return usage();
+    DieShape shape{};
+    unsigned long rolls = 0;
+    unsigned long seed = 0;
+    if (strcmp(argv[1], "trace") == 0 && argc == 5) {
+        if (!parseShape(argv[2], shape) || !parseCount(argv[3], rolls) || !parseCount(argv[4], seed)) return usage();
+        return runTrace(argv[2], shape, rolls, seed);
+    }
+    unsigned long dice = 0;
+    if (strcmp(argv[1], "tally") == 0 && argc == 6) {
+        if (!parseShape(argv[2], shape) || !parseCount(argv[3], dice) || dice > MAX_DICE ||
+            !parseCount(argv[4], rolls) || !parseCount(argv[5], seed)) {
+            return usage();
+        }
+        return runTally(argv[2], shape, static_cast<uint8_t>(dice), rolls, seed);
+    }
+    return usage();
+}

@@ -1,0 +1,149 @@
+#include <initializer_list>
+#include <math.h>
+#include <unity.h>
+#include "../../src/geometry/die_shape.h"
+#include "../../src/geometry/die_shape.cpp"
+#include "../../src/geometry/quaternion.h"
+#include "../../src/geometry/quaternion.cpp"
+#include "../../src/geometry/rotation.h"
+#include "../../src/geometry/rotation.cpp"
+#include "../../src/physics/die_result.h"
+#include "../../src/physics/die_result.cpp"
+#include "../../src/physics/world.h"
+#include "../../src/physics/world.cpp"
+
+// Rest detection and the lock (ADR-0002), and invariant #3: a locked result never changes until
+// the next roll.
+
+static const float TOLERANCE = 1e-4f;
+static const RestThresholds THRESHOLDS = PRODUCT_REST_THRESHOLDS;
+static const uint32_t HOLD_STEPS = stepsIn(THRESHOLDS.holdS);
+static const uint32_t SECOND = stepsIn(1.0f);
+static const uint8_t TOP_FACE = 7;
+// A lean well past the cocked tolerance, as a die propped on a wall measured at 1° to 28°.
+static const float PROPPED_TILT_RAD = 10 * RAD_PER_DEG;
+static const float STRIKE_MM_PER_S = 2000.0f;
+
+static const DieShape D20 = makeD20(D20_EDGE_MM);
+
+/** @brief The orientation that turns @p face of @p shape straight toward the glass. */
+static Quaternion faceUp(const DieShape& shape, uint8_t face) {
+    const Vec3 normal = shape.faces[face].normal;
+    return quaternionAbout(cross(normal, {0, 0, 1}), acosf(normal.z));
+}
+
+static DieBody still(Quaternion orientation) { return {{50, 30, 10}, {0, 0, 0}, orientation, {0, 0, 0}}; }
+
+static DieResult feed(DieResult result, const DieBody& body, uint32_t steps) {
+    for (uint32_t step = 0; step < steps; step++) result = updateResult(result, body, D20, THRESHOLDS);
+    return result;
+}
+
+void test_the_up_face_is_the_one_turned_to_the_glass() {
+    const UpFace top = upFace(D20, faceUp(D20, TOP_FACE));
+    TEST_ASSERT_EQUAL_UINT8(TOP_FACE, top.face);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0, top.tiltRad);
+}
+
+void test_a_die_still_for_the_hold_time_locks_to_its_up_face() {
+    const DieResult result = feed(startRoll(), still(faceUp(D20, TOP_FACE)), HOLD_STEPS);
+    TEST_ASSERT_EQUAL(DieState::Locked, result.state);
+    TEST_ASSERT_EQUAL_UINT8(D20.faces[TOP_FACE].numeral, result.numeral);
+}
+
+void test_a_die_still_for_less_than_the_hold_time_is_still_rolling() {
+    const DieResult result = feed(startRoll(), still(faceUp(D20, TOP_FACE)), HOLD_STEPS - 1);
+    TEST_ASSERT_EQUAL(DieState::Rolling, result.state);
+}
+
+void test_moving_past_either_threshold_starts_the_hold_over() {
+    DieBody sliding = still(faceUp(D20, TOP_FACE));
+    sliding.velocity = {THRESHOLDS.linearMmPerS * 2, 0, 0};
+    DieBody turning = still(faceUp(D20, TOP_FACE));
+    turning.angularVelocity = {0, 0, THRESHOLDS.angularRadPerS * 2};
+    for (const DieBody& moving : {sliding, turning}) {
+        DieResult result = feed(startRoll(), still(faceUp(D20, TOP_FACE)), HOLD_STEPS - 1);
+        result = feed(result, moving, 1);
+        result = feed(result, still(faceUp(D20, TOP_FACE)), HOLD_STEPS - 1);
+        TEST_ASSERT_EQUAL(DieState::Rolling, result.state);
+    }
+}
+
+void test_a_die_resting_propped_is_cocked_not_locked() {
+    const Quaternion leaning = quaternionAbout({1, 0, 0}, PROPPED_TILT_RAD) * faceUp(D20, TOP_FACE);
+    const DieResult result = feed(startRoll(), still(leaning), HOLD_STEPS);
+    TEST_ASSERT_EQUAL(DieState::Cocked, result.state);
+}
+
+void test_a_lean_inside_the_cocked_tolerance_still_locks() {
+    const Quaternion nearlyFlat = quaternionAbout({1, 0, 0}, THRESHOLDS.cockedTiltRad / 2) * faceUp(D20, TOP_FACE);
+    const DieResult result = feed(startRoll(), still(nearlyFlat), HOLD_STEPS);
+    TEST_ASSERT_EQUAL(DieState::Locked, result.state);
+    TEST_ASSERT_EQUAL_UINT8(D20.faces[TOP_FACE].numeral, result.numeral);
+}
+
+void test_a_locked_result_survives_any_later_motion_or_pose() {
+    // Invariant #3: whatever the die does after it locks, fed body by body.
+    const DieResult locked = feed(startRoll(), still(faceUp(D20, TOP_FACE)), HOLD_STEPS);
+    TEST_ASSERT_EQUAL(DieState::Locked, locked.state);
+    for (uint8_t face = 0; face < D20.faceCount; face++) {
+        DieBody tumbling = still(faceUp(D20, face));
+        tumbling.velocity = {STRIKE_MM_PER_S, 0, 0};
+        tumbling.angularVelocity = {0, 30, 0};
+        const DieResult after = feed(feed(locked, tumbling, SECOND), still(faceUp(D20, face)), SECOND);
+        TEST_ASSERT_EQUAL(DieState::Locked, after.state);
+        TEST_ASSERT_EQUAL_UINT8(locked.numeral, after.numeral);
+    }
+}
+
+void test_a_locked_die_struck_and_tipped_by_the_physics_keeps_its_result() {
+    // Invariant #3 through the real physics: the die locks on the floor, a strike tumbles it onto
+    // other faces, and the result stays the first one.
+    World world{};
+    world.shape = &D20;
+    world.gravity = {0, 0, -GRAVITY_MM_PER_S2};
+    world.dieCount = 1;
+    world.dice[0] = {{PRODUCT_TRAY.widthMm / 2, PRODUCT_TRAY.depthMm / 2, 20}, {0, 0, 0}, faceUp(D20, TOP_FACE), {0, 0, 0}};
+    DieResult result = startRoll();
+    for (uint32_t step = 0; step < SECOND && result.state != DieState::Locked; step++) {
+        stepWorld(world, PRODUCT_TRAY);
+        result = updateResult(result, world.dice[0], D20, THRESHOLDS);
+    }
+    TEST_ASSERT_EQUAL(DieState::Locked, result.state);
+    const uint8_t lockedNumeral = result.numeral;
+
+    world.dice[0].velocity = {STRIKE_MM_PER_S, STRIKE_MM_PER_S / 2, STRIKE_MM_PER_S / 2};
+    world.dice[0].angularVelocity = {20, -15, 5};
+    bool faceChanged = false;
+    for (uint32_t step = 0; step < 3 * SECOND; step++) {
+        stepWorld(world, PRODUCT_TRAY);
+        result = updateResult(result, world.dice[0], D20, THRESHOLDS);
+        if (D20.faces[upFace(D20, world.dice[0].orientation).face].numeral != lockedNumeral) faceChanged = true;
+        TEST_ASSERT_EQUAL(DieState::Locked, result.state);
+        TEST_ASSERT_EQUAL_UINT8(lockedNumeral, result.numeral);
+    }
+    // The strike must actually have turned the die over, or this proves nothing.
+    TEST_ASSERT_TRUE(faceChanged);
+}
+
+void test_only_a_new_roll_clears_a_lock() {
+    const DieResult locked = feed(startRoll(), still(faceUp(D20, TOP_FACE)), HOLD_STEPS);
+    TEST_ASSERT_EQUAL(DieState::Locked, locked.state);
+    const DieResult fresh = startRoll();
+    TEST_ASSERT_EQUAL(DieState::Rolling, fresh.state);
+    TEST_ASSERT_FLOAT_WITHIN(TOLERANCE, 0, fresh.stillS);
+}
+
+int main() {
+    UNITY_BEGIN();
+    RUN_TEST(test_the_up_face_is_the_one_turned_to_the_glass);
+    RUN_TEST(test_a_die_still_for_the_hold_time_locks_to_its_up_face);
+    RUN_TEST(test_a_die_still_for_less_than_the_hold_time_is_still_rolling);
+    RUN_TEST(test_moving_past_either_threshold_starts_the_hold_over);
+    RUN_TEST(test_a_die_resting_propped_is_cocked_not_locked);
+    RUN_TEST(test_a_lean_inside_the_cocked_tolerance_still_locks);
+    RUN_TEST(test_a_locked_result_survives_any_later_motion_or_pose);
+    RUN_TEST(test_a_locked_die_struck_and_tipped_by_the_physics_keeps_its_result);
+    RUN_TEST(test_only_a_new_roll_clears_a_lock);
+    return UNITY_END();
+}
