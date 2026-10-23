@@ -2,7 +2,6 @@
 
 namespace {
 
-constexpr float FULL_SCALE_COUNTS = 32768.0f;
 constexpr size_t BYTES_PER_AXIS = 2;
 constexpr size_t BMI270_GYRO_OFFSET = 6;
 constexpr size_t MPU6886_GYRO_OFFSET = 8;  // after accel (6) and temperature (2)

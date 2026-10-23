@@ -1,6 +1,7 @@
 // Tests for the pure half of scripts/skeleton-verify.mjs (slice 0003). The boot logs in
-// fixtures/skeleton/ were recorded from a Cardputer ADV; the zero-sample one is the boot
-// before its BMI270 driver waited for data-ready.
+// fixtures/skeleton/ were recorded from the boards: the Cardputer ADV's at slice 0003's
+// +-8 g, its zero-sample one before the BMI270 driver waited for data-ready, and
+// stickc-boot.log at ADR-0005's +-16 g and 100 Hz (slice 0004).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -30,9 +31,15 @@ function series(count, make) {
 }
 const still = (ax, ay, az) => series(150, () => ({ ax, ay, az, gx: 0.2, gy: -0.3, gz: 0.1 }));
 
-test('a recorded Cardputer boot passes the boot, error and zero-sample checks', () => {
-  const parsed = fixture('cardputer-boot.log');
+test('a recorded boot at ADR-0005\'s settings passes the boot, error and zero-sample checks', () => {
+  const parsed = fixture('stickc-boot.log');
   assert.deepEqual(checkBoot(parsed).failures, []);
+  assert.deepEqual(checkNoErrors(parsed).failures, []);
+  assert.deepEqual(checkNoZeroSamples(samplesOf(parsed)).failures, []);
+});
+
+test('a recorded Cardputer boot passes the error and zero-sample checks', () => {
+  const parsed = fixture('cardputer-boot.log');
   assert.deepEqual(checkNoErrors(parsed).failures, []);
   assert.deepEqual(checkNoZeroSamples(samplesOf(parsed)).failures, []);
 });
@@ -78,9 +85,17 @@ test('an IMU configured under the required ranges fails the boot', () => {
     '[boot] imu OK: MPU6886 0x68 accel +-2 g gyro +-250 dps', '[boot] M5StickC Plus2 ready',
   ].map(parseLine);
   assert.deepEqual(checkBoot(parsed).failures, [
-    'boot: accel range +-2 g is under +-8 g',
+    'boot: accel range +-2 g is under +-16 g',
     'boot: gyro range +-250 dps is under +-2000 dps',
   ]);
+});
+
+test('the skeleton\'s old +-8 g fails the boot: shakes reach 9.8 g (ADR-0005)', () => {
+  const parsed = [
+    '[boot] power OK: x', '[boot] display OK: y', '[boot] input OK: z',
+    '[boot] imu OK: BMI270 0x69 accel +-8 g gyro +-2000 dps at 100 Hz', '[boot] Cardputer ADV ready',
+  ].map(parseLine);
+  assert.deepEqual(checkBoot(parsed).failures, ['boot: accel range +-8 g is under +-16 g']);
 });
 
 test('a failed IMU read, an IDF error and a panic are each an error line', () => {

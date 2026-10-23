@@ -17,6 +17,9 @@ constexpr uint32_t SAMPLE_PERIOD_US = 20000;
 // The readout is for eyes; a faster redraw would only take time from sampling.
 constexpr uint32_t REDRAW_PERIOD_MS = 100;
 constexpr uint32_t HALT_POLL_MS = 1000;
+// Measured by the IMU probe (ADR-0005): shakes reach 9.8 g, so +-8 g clips them, and a shake
+// is told from handling as well at 100 Hz as at the chips' fastest rates.
+constexpr ImuSettings PRODUCT_IMU_SETTINGS{16, 2000, 100};
 
 constexpr int TEXT_LEFT_PX = 6;
 constexpr int TEXT_TOP_PX = 8;
@@ -172,6 +175,7 @@ void drawReadout() {
 
 void setup() {
     Serial.begin(SERIAL_BAUD);
+    hal.imu.configure(PRODUCT_IMU_SETTINGS);
 
     // Power first: the StickC switches itself off unless its HOLD pin is latched, and
     // the latch cannot fail, so nothing is lost by bringing the display up second.

@@ -20,8 +20,9 @@ import { pathToFileURL } from 'node:url';
 export const ENVS = ['cardputer', 'm5stickc-plus2'];
 export const REQUIRED_SUBSYSTEMS = ['power', 'display', 'input', 'imu'];
 
-// Thresholds from the slice's Definition of Done.
-export const MIN_ACCEL_RANGE_G = 8;
+// Thresholds from the slice's Definition of Done, with the accelerometer floor raised from
+// +-8 g to the +-16 g ADR-0005 chose: shakes reached 9.8 g.
+export const MIN_ACCEL_RANGE_G = 16;
 export const MIN_GYRO_RANGE_DPS = 2000;
 export const REST_MAGNITUDE_TOLERANCE_G = 0.15;
 export const REST_GYRO_LIMIT_DPS = 10;

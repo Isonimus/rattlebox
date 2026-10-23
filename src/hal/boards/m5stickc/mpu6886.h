@@ -4,6 +4,7 @@
 #include "../../imu_hal.h"
 #include "../../../imu/axis_map.h"
 #include "../../../imu/imu_decode.h"
+#include "../../../imu/imu_settings.h"
 
 /**
  * @brief The StickC Plus 2's MPU6886 on its internal I2C bus (G21 SDA, G22 SCL).
@@ -17,10 +18,11 @@ public:
     const char* failureReason() const override { return _failureReason; }
     const char* description() const override { return _description; }
     bool read(ImuSample& sample) override;
+    bool hasNewSample(bool& available) override;
 
 private:
-    static constexpr ImuFullScale FULL_SCALE{8.0f, 2000.0f};
-
+    // Set by begin() from the configured settings, so decoding uses the range written.
+    ImuFullScale _fullScale{};
     char _failureReason[80] = "";
     char _description[80] = "";
 

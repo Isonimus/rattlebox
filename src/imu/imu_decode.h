@@ -11,7 +11,13 @@ struct SensorReading {
     Vec3 gyroDps;
 };
 
-/** @brief The ranges a chip was configured for; a raw count of ±32768 is full scale. */
+/**
+ * @brief The size of a raw count at full scale, for a 16-bit signed reading. Shared by
+ * the decoder and the IMU probe's packer, which must scale alike (slice 0004).
+ */
+constexpr float FULL_SCALE_COUNTS = 32768.0f;
+
+/** @brief The ranges a chip was configured for; a raw count of ±FULL_SCALE_COUNTS is full scale. */
 struct ImuFullScale {
     float accelG;
     float gyroDps;

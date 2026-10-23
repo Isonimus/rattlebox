@@ -1,4 +1,5 @@
 #include "bmi270.h"
+#include "../../delay_at_least.h"
 #include "bmi270_config.h"
 #include "cardputer_i2c.h"
 #include <Arduino.h>
@@ -33,12 +34,6 @@ constexpr uint8_t INTERNAL_STATUS_MESSAGE_MASK = 0x0F;
 constexpr uint8_t INTERNAL_STATUS_INIT_OK      = 0x01;
 // Accelerometer, gyroscope and temperature sensor on; the auxiliary interface off.
 constexpr uint8_t PWR_CTRL_ACC_GYR_TEMP = 0x0E;
-// 100 Hz output, normal filter bandwidth, performance mode: bits 7 (filter_perf),
-// 5:4 (bwp = 2) and 3:0 (odr = 8). The same layout and values hold for both sensors.
-// The M0 IMU probe decides the real rate and filtering (ADR-0001).
-constexpr uint8_t CONF_100HZ_NORMAL_PERF = 0xA8;
-constexpr uint8_t ACC_RANGE_8G         = 0x02;
-constexpr uint8_t GYR_RANGE_2000DPS    = 0x00;
 constexpr uint8_t STATUS_DATA_READY    = 0xC0;  // drdy_acc (bit 7) and drdy_gyr (bit 6)
 
 // Bosch's delays: 2 ms after a soft reset, 450 us after leaving advanced power save,
@@ -66,6 +61,11 @@ constexpr AxisMap CARDPUTER_AXIS_MAP{
 };
 static_assert(isRotation(CARDPUTER_AXIS_MAP), "a mounted chip is rotated, never mirrored");
 
+struct RegisterSetting {
+    uint8_t reg;
+    uint8_t value;
+};
+
 bool writeRegister(uint8_t reg, uint8_t value) {
     return cardputer_i2c::writeRegister(ADDRESS, reg, value);
 }
@@ -85,6 +85,15 @@ bool Bmi270::fail(const char* format, ...) {
 }
 
 bool Bmi270::begin() {
+    if (!_configured) return fail("IMU settings never configured");
+    Bmi270Registers registers{};
+    const char* refusal = toBmi270Registers(_settings, registers);
+    if (refusal != nullptr) {
+        return fail("%s: +-%u g, +-%u dps, %u Hz", refusal, _settings.accelRangeG, _settings.gyroRangeDps,
+                    _settings.outputRateHz);
+    }
+    _fullScale = fullScaleOf(_settings);
+
     if (!cardputer_i2c::begin()) return fail("I2C bus failed to start");
 
     uint8_t chipId = 0;
@@ -94,15 +103,14 @@ bool Bmi270::begin() {
     // The reset's own write may go unacknowledged while the chip restarts, so only the
     // writes after it are checked.
     writeRegister(REG_CMD, CMD_SOFT_RESET);
-    delay(SOFT_RESET_DELAY_MS);
+    delayAtLeastMs(SOFT_RESET_DELAY_MS);
 
     if (!uploadConfig()) return false;
-    if (!configureSensors()) return false;
+    if (!configureSensors(registers)) return false;
     if (!waitForData()) return false;
 
-    snprintf(_description, sizeof(_description),
-             "BMI270 0x%02X accel +-%d g gyro +-%d dps", ADDRESS,
-             static_cast<int>(FULL_SCALE.accelG), static_cast<int>(FULL_SCALE.gyroDps));
+    snprintf(_description, sizeof(_description), "BMI270 0x%02X accel +-%u g gyro +-%u dps at %u Hz", ADDRESS,
+             _settings.accelRangeG, _settings.gyroRangeDps, _settings.outputRateHz);
     return true;
 }
 
@@ -123,7 +131,7 @@ bool Bmi270::uploadConfig() {
     }
 
     if (!writeRegister(REG_INIT_CTRL, INIT_CTRL_END_LOAD)) return fail("INIT_CTRL write NACK after the upload");
-    delay(CONFIG_INIT_DELAY_MS);
+    delayAtLeastMs(CONFIG_INIT_DELAY_MS);
 
     uint8_t status = 0;
     if (!readRegister(REG_INTERNAL_STATUS, status)) return fail("INTERNAL_STATUS read NACK");
@@ -133,41 +141,54 @@ bool Bmi270::uploadConfig() {
     return true;
 }
 
-bool Bmi270::configureSensors() {
-    const bool written = writeRegister(REG_PWR_CTRL, PWR_CTRL_ACC_GYR_TEMP) &&
-                         writeRegister(REG_ACC_CONF, CONF_100HZ_NORMAL_PERF) &&
-                         writeRegister(REG_ACC_RANGE, ACC_RANGE_8G) &&
-                         writeRegister(REG_GYR_CONF, CONF_100HZ_NORMAL_PERF) &&
-                         writeRegister(REG_GYR_RANGE, GYR_RANGE_2000DPS);
-    if (!written) return fail("sensor configuration write NACK");
+bool Bmi270::configureSensors(const Bmi270Registers& registers) {
+    const RegisterSetting settings[] = {
+        {REG_ACC_CONF, registers.accConf},
+        {REG_ACC_RANGE, registers.accRange},
+        {REG_GYR_CONF, registers.gyrConf},
+        {REG_GYR_RANGE, registers.gyrRange},
+    };
+    if (!writeRegister(REG_PWR_CTRL, PWR_CTRL_ACC_GYR_TEMP)) return fail("PWR_CTRL write NACK");
 
-    // The decode scale assumes these ranges, so a range the chip did not take would
-    // silently scale every sample wrong.
-    uint8_t accRange = 0;
-    uint8_t gyrRange = 0;
-    if (!readRegister(REG_ACC_RANGE, accRange) || !readRegister(REG_GYR_RANGE, gyrRange)) {
-        return fail("range read-back NACK");
+    // Each setting is read back: the decode scale assumes these ranges, and the probe these
+    // rates, so one the chip did not take would silently make every sample wrong.
+    for (const RegisterSetting& setting : settings) {
+        uint8_t readBack = 0;
+        if (!writeRegister(setting.reg, setting.value) || !readRegister(setting.reg, readBack)) {
+            return fail("NACK configuring register 0x%02X", setting.reg);
+        }
+        if (readBack != setting.value) {
+            return fail("register 0x%02X read back 0x%02X, expected 0x%02X", setting.reg, readBack, setting.value);
+        }
     }
-    if (accRange != ACC_RANGE_8G) return fail("ACC_RANGE read back 0x%02X, expected 0x02", accRange);
-    if (gyrRange != GYR_RANGE_2000DPS) return fail("GYR_RANGE read back 0x%02X, expected 0x00", gyrRange);
+    return true;
+}
+
+bool Bmi270::hasNewSample(bool& available) {
+    uint8_t status = 0;
+    if (!readRegister(REG_STATUS, status)) return false;
+    available = (status & STATUS_DATA_READY) == STATUS_DATA_READY;
     return true;
 }
 
 bool Bmi270::waitForData() {
     const uint32_t startMs = millis();
-    uint8_t status = 0;
+    bool available = false;
     do {
-        if (!readRegister(REG_STATUS, status)) return fail("STATUS read NACK");
-        if ((status & STATUS_DATA_READY) == STATUS_DATA_READY) return true;
+        if (!hasNewSample(available)) return fail("STATUS read NACK");
+        if (available) return true;
         delay(1);
     } while (millis() - startMs < DATA_READY_TIMEOUT_MS);
+    // STATUS has one ready bit per sensor, so it shows which of the two never converted.
+    uint8_t status = 0;
+    if (!readRegister(REG_STATUS, status)) return fail("STATUS read NACK");
     return fail("no data within %lu ms, STATUS 0x%02X", static_cast<unsigned long>(DATA_READY_TIMEOUT_MS), status);
 }
 
 bool Bmi270::read(ImuSample& sample) {
     uint8_t burst[BMI270_BURST_BYTES];
     if (!cardputer_i2c::readRegisters(ADDRESS, REG_ACC_X_LSB, burst, sizeof(burst))) return false;
-    const SensorReading reading = decodeBmi270(burst, FULL_SCALE);
+    const SensorReading reading = decodeBmi270(burst, _fullScale);
     sample.accelG = remapToDeviceFrame(reading.accelG, CARDPUTER_AXIS_MAP);
     sample.gyroDps = remapToDeviceFrame(reading.gyroDps, CARDPUTER_AXIS_MAP);
     sample.timestampUs = micros();

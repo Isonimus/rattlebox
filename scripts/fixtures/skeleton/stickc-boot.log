@@ -1,0 +1,21 @@
+rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+configsip: 271414342, SPIWP:0xee
+clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+mode:DIO, clock div:2
+load:0x3fff0030,len:4640
+load:0x40078000,len:15660
+load:0x40080400,len:3164
+entry 0x4008059c
+[boot] power OK: HOLD latch on G4
+[    54][I][esp32-hal-ledc.c:288] ledcAttachChannel(): LEDC attached to pin 27 (channel 0, resolution 9)
+[boot] display OK: ST7789 240x135
+[boot] canvas OK: 16-bit, full screen
+[boot] input OK: buttons A (G37) and B (G39)
+[   299][I][esp32-hal-i2c-ng.c:112] i2cInit(): Initializing I2C Master: num=0 sda=21 scl=22 freq=400000
+[boot] imu OK: MPU6886 0x68 accel +-16 g gyro +-2000 dps at 100 Hz
+[boot] M5StickC Plus2 ready
+[imu] 369538 -0.213 -0.007 0.982 -1.0 -0.4 0.9
+[imu] 389547 -0.212 -0.005 0.984 -1.0 -0.4 0.9
+[imu] 409413 -0.212 -0.006 0.981 -1.1 -0.5 0.9
+[imu] 429411 -0.216 -0.009 0.983 -1.1 -0.5 0.9
+[imu] 449391 -0.211 -0.008 0.981 -1.0 -0.2 0.9

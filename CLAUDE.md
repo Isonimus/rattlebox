@@ -135,6 +135,7 @@ actually wired (R11), so a row cannot claim a check that runs nowhere.
 | 1 | A change to anything shared by both boards (`src/hal/*.h`, and any code outside `src/hal/boards/`) is done only once both `cardputer` and `m5stickc-plus2` build. One env compiles one board's folder, so a single-env build proves nothing about the other. | ADR-0001 | pending (LEDGER) |
 | 2 | A die type ships only with a passing host fairness test: a chi-square goodness-of-fit test over simulated rolls through the real physics code. | ADR-0002 | pending (LEDGER) |
 | 3 | A die's reported result never changes after it locks at first rest; only a new roll replaces it. | ADR-0002 | pending (LEDGER) |
+| 4 | Timing derived from IMU samples uses their timestamps, never the configured output rate: the chips' clocks were measured up to 1.1% off it. | ADR-0005 | review-only |
 
 When an ADR's consequences create a rule that all *future* work must follow, add the row
 in the same commit as the ADR.

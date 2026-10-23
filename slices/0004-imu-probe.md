@@ -148,3 +148,85 @@ says so rather than picking a threshold.
   `artifacts/imu-probe/<env>/` are the evidence the ADR cites. As a probe it is exempt from
   `package.json` wiring (R11). The product firmware with the chosen settings is checked by
   `npm run verify:skeleton` on both boards.
+
+## As built
+
+Shipped on 2026-10-23. The probe's answer is ADR-0005: ±16 g, ±2000 °/s and 100 Hz on both
+boards, and a shake told from handling by how long the motion lasts. Both boards' product
+firmware runs those settings.
+
+| Definition of Done | Evidence |
+|---|---|
+| Four envs build with no warnings from `src/` | Six build clean (the four, plus the two 100 Hz probe envs below), each from a clean build |
+| Settings translate, or are refused naming the field | `test_imu_settings`: every supported range and rate on both chips, and refusals including rate 0, a non-integer MPU6886 divider and a divider over 255 |
+| Unset or refused settings stop boot | `begin()` fails with the reason before touching the bus |
+| `R` records silently, then replies `RBIMU … RBEND` | 90 takes captured across both boards; boot logs record the buffer (StickC 78 KB of a 107 KB largest free block) |
+| A broken or uneven window fails the capture | `test_capture_imu.py`: header, short body, missing `RBEND`, the board's own failure line, gaps, counter wrap |
+| Pack and unpack round trip | `test_imu_wire`: all 65,536 counts through the real decoder, a sign-flipped axis, both full-scale ends; the host flags either end as saturated |
+| The probe writes per-take CSVs and the summary | `artifacts/imu-probe/<env>/summary.md` for all four probe envs |
+| An ADR records the settings with their numbers, and both boards run them | ADR-0005; `PRODUCT_IMU_SETTINGS` in `src/main.cpp` |
+| `verify:skeleton` passes with the raised floor | Both boards passed every check at ±16 g and 100 Hz: shakes measured unclipped at 6.78 g (StickC) and 6.65 g (Cardputer) |
+
+**Deviations from the design.**
+
+- **A fourth feature decided it.** All three planned features (peak deviation, 200 ms RMS, peak
+  |ω|) failed on both boards, because an accidental knock out-measured the gentlest shake. A
+  small sweep over the StickC's takes picked the busy share (share of the busiest 1 s over
+  0.5 g off 1 g); it was fixed in `scripts/imu-probe.mjs` before the Cardputer's takes, which
+  then separated without retuning. The numbers are in ADR-0005.
+- **The confirmation at the real rate became two envs**, `cardputer-imu-probe-100hz` and
+  `m5stickc-plus2-imu-probe-100hz`, recording only the gestures near the threshold (both
+  shakes, `pickup`, `setdown`, `walk`, `bump`; 18 takes per board).
+- **`ImuHAL` gained `hasNewSample()`.** Recording on a timer of our own would drift against the
+  chip's clock and duplicate or skip samples, so the probe waits on the chip's data-ready flag,
+  which both drivers already polled privately in `waitForData()`.
+- **`FULL_SCALE_COUNTS` moved into `imu_decode.h`**, shared by the decoder and the packer,
+  which must scale alike.
+
+**Defects found and fixed.**
+
+- **`delay(n)` could wait under n ms.** Arduino-ESP32's `delay` returns at the nth FreeRTOS
+  tick, and on the Cardputer `delay(2)` took 1587 to 2450 µs over 200 calls. The BMI270
+  refuses a write sent under 2 ms after its soft reset, so the probe failed boot with
+  `PWR_CONF write NACK` in 13 of 14 resets on one evening, and in none earlier that day: it
+  depended on where in a tick the call landed. A temporary diagnostic (not committed) showed
+  CHIP_ID reads succeeding after 2 ms while the first write was still refused 1 time in 5.
+  `src/hal/delay_at_least.h` adds a tick to every wait that stands for a datasheet minimum: the
+  BMI270's soft reset and config load, and the MPU6886's reset and gyro start-up (slice 0003's
+  fix for the zero first sample had the same weakness). After the fix: 20 of 20 probe boots,
+  then 39 of 40 product boots; the one miss was in a loop that did not keep its log, so whether
+  the IMU failed or the monitor missed the line is unknown.
+- **The first sample of a window was stale.** Between windows nothing read the chip, so its
+  data-ready flag was already set when `R` arrived and sample 0 was taken off the chip's grid:
+  the first interval read 1407 to 1624 µs in 6 of 8 StickC windows, failing the gap check. The
+  probe now reads and drops the waiting sample first; over the next 8 windows the first
+  interval was 977 to 1019 µs and the worst anywhere 1165 µs.
+- **The analysis could not read its own captures.** Python's `csv` writes `\r\n`, and the
+  parser split on `\n` only, so every header failed to match. A regression test with CRLF now
+  covers it.
+- **A short window lost its explanation.** The Cardputer once delivered 7942 of 8000 bytes.
+  The board reports a short write in-line, where the host was still counting body bytes, so the
+  reason was discarded; the host now quotes the board's note, or says it sent none. The cause
+  of that one short window is unknown; it did not recur in the 15 Cardputer takes that followed.
+
+**Build isolation.** Mid-slice, both product builds failed in the framework itself, with the
+Arduino core and the ESP-IDF libraries of different releases. Three local projects pin
+pioarduino 55.03.34, and every release installs its framework under the same package names in
+the shared `~/.platformio`, so building one swapped Rattlebox's framework out and an
+overlapping build compiled against half of each. `platformio.ini` now sets
+`core_dir = .platformio` (4.8 GB, gitignored), so no other project can swap it. On this
+machine the pipx PlatformIO Core was also pinned to 6.1.19, the version VS Code's extension
+runs, so the two stop rewriting each other's state; that is the operator's environment, not
+the repo's.
+
+**Fixtures.** Raising the skeleton check's floor to ±16 g made slice 0003's recorded Cardputer
+boot (at ±8 g) fail the boot check. Rather than edit a recording, a new StickC boot at
+ADR-0005's settings (`scripts/fixtures/skeleton/stickc-boot.log`) carries that check; the old
+recording keeps the checks the range does not affect.
+
+**Adversarial review.** A blind correctness pass found three defects, all fixed: the probe's
+recording loop had no timeout, so a chip that stopped raising data-ready would hold the board
+for good (it now fails after 100 ms without a sample; not reproducible on the host, checked by
+three captures after the change); `capture_imu.py` used a backslash inside an f-string
+expression, a SyntaxError before Python 3.12 (reproduced with Python 3.11); and a one-sample
+take was given an infinite measured rate instead of being refused (regression test).
