@@ -15,7 +15,9 @@ before it ships, and `LEDGER.md` tracks that work.
 | Arduino core for ESP32 | 3.3.7 | PlatformIO framework | LGPL-2.1-or-later | Let the recipient relink the firmware against a modified core, for example by publishing the source |
 | ESP-IDF (inside the Arduino core) | 5.5.0 | PlatformIO framework libraries | Apache-2.0, with components under their own licenses | Include the license and any NOTICE files |
 
-Code copied from Dragon Radar (ADR-0001) has the same author and is not third-party.
+Code copied from Dragon Radar (ADR-0001) has the same author and is not third-party. Rattlebox's
+own code, that copied code included, is under the MIT license in `LICENSE`, the license Dragon
+Radar uses, so the copied code keeps the license it came with.
 
 ## Bosch Sensortec BMI270 config file
 
