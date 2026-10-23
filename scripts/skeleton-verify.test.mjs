@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import {
   checkBoot,
   checkNoErrors,
+  checkFirstSampleSettled,
   checkNoZeroSamples,
   checkOrientation,
   checkPresses,
@@ -40,6 +41,26 @@ test('the recorded boot that streamed zeros before the first conversion is caugh
   const result = checkNoZeroSamples(samplesOf(fixture('cardputer-boot-zero-samples.log')));
   assert.equal(result.passed, false);
   assert.match(result.failures[0], /^3 all-zero IMU sample\(s\)/);
+});
+
+test('a recorded Cardputer boot passes the first-sample check', () => {
+  assert.deepEqual(checkFirstSampleSettled(fixture('cardputer-boot.log')).failures, []);
+});
+
+test('the recorded StickC boot that read the gyro before it started is caught', () => {
+  const result = checkFirstSampleSettled(fixture('stickc-boot-gyro-not-started.log'));
+  assert.equal(result.passed, false);
+  assert.match(result.failures[0], /^first sample: the gyro reads exactly zero at t=332690 us/);
+});
+
+test('samples printed before the reset do not count as the first one after boot', () => {
+  const parsed = [parseLine('[imu] 900000 0.010 0.020 1.000 0.0 0.0 0.0'), ...fixture('cardputer-boot.log')];
+  assert.deepEqual(checkFirstSampleSettled(parsed).failures, []);
+});
+
+test('a boot that never streams a sample fails the first-sample check', () => {
+  const parsed = ['[boot] power OK: x', '[boot] Cardputer ADV ready'].map(parseLine);
+  assert.deepEqual(checkFirstSampleSettled(parsed).failures, ['first sample: none arrived after boot']);
 });
 
 test('a FAILED boot line fails the boot and names the subsystem and reason', () => {

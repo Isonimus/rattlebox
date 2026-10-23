@@ -28,8 +28,12 @@ constexpr uint8_t PWR_MGMT_1_RESET    = 0x80;
 constexpr uint8_t PWR_MGMT_1_AUTO_CLOCK = 0x01;
 constexpr uint32_t RESET_DELAY_MS     = 10;
 constexpr uint8_t INT_STATUS_DATA_READY = 0x01;
-// Until the first conversion the data registers read zero, as the BMI270's did on the
-// Cardputer ADV (slice 0003). The gyro's start-up, 35 ms in the datasheet, is the longer.
+// Data-ready rises with the first conversion, about 10 ms after waking, while the gyro is
+// still starting: on every one of 150 StickC boots that first sample read the gyro as
+// exactly zero and z as 0.54 g (slice 0003). So the driver waits out the gyro's start-up
+// from sleep, 35 ms in the datasheet and the longer of the two sensors', before it waits
+// for data.
+constexpr uint32_t GYRO_START_UP_MS = 35;
 constexpr uint32_t DATA_READY_TIMEOUT_MS = 200;
 
 struct RegisterSetting {
@@ -49,11 +53,13 @@ constexpr RegisterSetting SETTINGS[] = {
     {REG_ACCEL_CONFIG2, 0x00},  // accel DLPF 218 Hz, no averaging
 };
 
-// How the chip sits on the StickC Plus 2's board, from the orientation checks on the
-// device (slice 0003).
+// How the chip sits on the StickC Plus 2's board, measured on 2026-10-23 (slice 0003) with
+// the display in rotation 1: screen up read chip z +1.004 g, and the screen's top edge up
+// read chip x +0.994 g; a counterclockwise twist peaked at chip gz +400 dps. Device x is
+// then y cross z, which is chip -y.
 constexpr AxisMap STICKC_AXIS_MAP{
+    {SensorAxis::Y, AxisSign::Negative},
     {SensorAxis::X, AxisSign::Positive},
-    {SensorAxis::Y, AxisSign::Positive},
     {SensorAxis::Z, AxisSign::Positive},
 };
 static_assert(isRotation(STICKC_AXIS_MAP), "a mounted chip is rotated, never mirrored");
@@ -109,6 +115,8 @@ bool Mpu6886::begin() {
         }
     }
 
+    // The settings above woke the chip, so the start-up time runs from here at the latest.
+    delay(GYRO_START_UP_MS);
     if (!waitForData()) return false;
 
     snprintf(_description, sizeof(_description),

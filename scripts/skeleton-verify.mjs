@@ -95,6 +95,22 @@ export function checkNoZeroSamples(samples) {
   return verdict(zeros.length === 0 ? [] : [`${zeros.length} all-zero IMU sample(s), the first at t=${zeros[0].t} us`]);
 }
 
+/**
+ * The first sample after boot must come from a gyro that is already converting: the
+ * MPU6886 read before its start-up time gave exactly zero on all three gyro axes on every
+ * one of 150 StickC boots (slice 0003). Only the first sample is checked, because a converting
+ * gyro also prints 0.0 on all three axes, though rarely: about once in 5000 Cardputer
+ * samples at rest. Lines before the ready line can be the previous run's, cut by the reset.
+ */
+export function checkFirstSampleSettled(parsed) {
+  const ready = parsed.findIndex((p) => p.kind === 'boot-ready');
+  const first = ready === -1 ? undefined : parsed.slice(ready + 1).find((p) => p.kind === 'sample');
+  if (first === undefined) return verdict(['first sample: none arrived after boot']);
+  const { t, gx, gy, gz } = first.sample;
+  const notStarted = [gx, gy, gz].every((v) => v === 0);
+  return verdict(notStarted ? [`first sample: the gyro reads exactly zero at t=${t} us, so it was read before it started`] : []);
+}
+
 const magnitude = (x, y, z) => Math.hypot(x, y, z);
 const accelMagnitude = (s) => magnitude(s.ax, s.ay, s.az);
 const mean = (values) => values.reduce((sum, v) => sum + v, 0) / values.length;
@@ -194,7 +210,7 @@ const PRESS_WINDOW_MS = 8000;
 
 const PRESS_KEYS = {
   cardputer: 'the board\'s Enter key, then its Backspace key',
-  'm5stickc-plus2': 'button A (front), then button B (side)',
+  'm5stickc-plus2': 'button A (front), then button B (on the side above the screen\'s board name, not the power button opposite it)',
 };
 
 /** Collects the board's lines; every check reads a window of them. */
@@ -277,9 +293,9 @@ async function main() {
     if (results.boot.passed) {
       await ask('Lay the board flat, screen up, and leave it still.');
       results.rest = checkRest((await record('rest', REST_WINDOW_MS)).samples);
-      await ask('Hold the board upright with its top edge up (the screen\'s top), and keep it still.');
+      await ask('Hold the board upright, facing you, with the board name on the screen at the top and readable, and keep it still.');
       results.topEdgeUp = checkOrientation((await record('top-edge-up', POSE_WINDOW_MS)).samples, 'y', 'top edge up');
-      await ask('Hold it with its right edge up, and keep it still.');
+      await ask('Turn it so the side with the circle points at the ceiling (its right edge up), and keep it still.');
       results.rightEdgeUp = checkOrientation((await record('right-edge-up', POSE_WINDOW_MS)).samples, 'x', 'right edge up');
       await ask('Lay it flat, screen up; after Enter, twist it counterclockwise (as seen from the screen) a few times.');
       results.twist = checkTwist((await record('twist', MOTION_WINDOW_MS)).samples);
@@ -295,6 +311,7 @@ async function main() {
   }
   results.noErrors = checkNoErrors(log.parsed);
   results.noZeroSamples = checkNoZeroSamples(log.samples);
+  results.firstSampleSettled = checkFirstSampleSettled(log.parsed);
 
   // The capture opens the port without resetting the board, so it shows the live readout.
   await new Promise((resolve) => monitor.once('exit', resolve));

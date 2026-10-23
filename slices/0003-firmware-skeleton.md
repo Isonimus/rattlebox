@@ -164,3 +164,73 @@ behind a CI step that pretends to run it.
   each passing, with the artifact directories kept for review. Wired into `package.json`
   (R11); its device half runs by hand (see `LEDGER.md`).
 - `npm test` aggregates the native, Node and Python suites.
+
+## As built
+
+Merged in two commits: the skeleton, verified on the Cardputer ADV on 2026-10-22, and the
+StickC fixes its device check forced on 2026-10-23. Every Definition of Done scenario was met;
+the deviations from the design above follow the results.
+
+**Device results.** Both boards passed every check of `npm run verify:skeleton`:
+
+| Measured | Cardputer ADV (BMI270) | M5StickC Plus2 (MPU6886) |
+|---|---|---|
+| Rest magnitude | 0.999 g | 1.008 g |
+| Sample rate | 50 Hz | 50 Hz |
+| Rest noise, accel std dev (worst axis) | 0.0011 g | 0.0020 g |
+| Rest noise, gyro std dev (worst axis) | 0.074 °/s | 0.158 °/s |
+| Twist peak `gz` | 569 °/s | 828 °/s |
+| Shake peak magnitude | 4.1 g | 8.0 g |
+
+The StickC's shake peaked at the ±8 g full scale, so a hard shake saturated it; the M0 IMU
+probe starts from that when it decides the range.
+
+**Axis maps.** The Cardputer's BMI270 sits on the device frame, so its map is the identity.
+The StickC's MPU6886 does not: with the display in rotation 1, screen up read chip z +1.004 g,
+the screen's top edge up read chip x +0.994 g, and a counterclockwise twist read positive chip
+`gz`, so device x is chip -y, device y is chip x and device z is chip z. The first StickC run
+had read a mirror image, because the "right edge up" prompt was held left edge up; the prompts
+now name what the operator sees (the board name at the top, the side with the circle, the side
+button opposite power), so a pose cannot be read two ways.
+
+**Deviations from the design.**
+
+- **Power comes up before the display.** The StickC switches itself off unless its HOLD pin
+  (GPIO 4) is latched, and the latch cannot fail, so the boot order is power, display, canvas,
+  input, IMU.
+- **The check resets the board through `scripts/serial_reset_monitor.py`, not
+  `pio device monitor`.** Opening the port with DTR and RTS high does not reset the board, so
+  the boot log was missed; the script resets it with esptool's hard-reset sequence and then
+  streams lines. That sequence reset the StickC through its CH9102 on every run.
+- **Warnings.** `build_src_flags` applies `-Wall -Wextra` to our code only, because the
+  framework's own headers do not build clean under `-Wextra`, and names `-Wunused-parameter`
+  and `-Wsign-compare` again, because the framework's `-Wno-` forms of both win over `-Wextra`
+  whatever the order.
+- **The BMI270 answers at 0x69**, the address in Bosch's API, on the bus it shares with the
+  keyboard.
+
+**Defects the device checks caught, each now a host-tested check.**
+
+- **The BMI270 streamed all-zero samples before its first conversion.** The driver now waits
+  for both data-ready bits before `begin()` returns, and `checkNoZeroSamples` fails a run with
+  any all-zero sample (fixture `cardputer-boot-zero-samples.log`).
+- **The MPU6886's first sample was read before its gyro started.** Its data-ready bit rises
+  about 10 ms after waking, before the gyro's 35 ms start-up in the datasheet, so on every one
+  of 150 StickC boots the first sample read the gyro as exactly zero and z as 0.54 g. The
+  driver now waits out the start-up before it waits for data; after the fix, 150 boots gave a
+  first-sample z of 0.982 g to 0.991 g and none was flagged. `checkFirstSampleSettled` fails a
+  run whose first sample after boot has an all-zero gyro (fixture
+  `stickc-boot-gyro-not-started.log`). The existing zero-sample check had passed that boot,
+  because the accelerometer was not zero. The Cardputer passed this check against its
+  recorded boot fixture, not on a live run, since the check postdates its device run.
+
+**Dragon Radar's two carried-over questions.** The StickC's GPIO 37/39 buttons on `INPUT`
+with the board's external pull-ups work: each press gave exactly one `[input]` line. Whether
+the generic `esp32dev` variant matches the Plus 2 was only partly answered: everything the
+skeleton uses boots and runs, but the variant's flash size and PSRAM settings were not
+compared with the board's, so that audit moved to `LEDGER.md`.
+
+**Unexplained.** One StickC boot, with the board held in the hand, failed with `imu FAILED:
+no ACK at 0x68` (ESP-IDF error 259). It did not recur in over 300 resets on the desk or in two
+later handheld runs. Boot failed loud, as designed; no retry was added, since a retry would
+hide the cause.
