@@ -2,7 +2,7 @@
 #define DIE_VIEW_H
 
 #include <stdint.h>
-#include "../geometry/d20_mesh.h"
+#include "../geometry/die_shape.h"
 #include "../geometry/rotation.h"
 
 /** @brief An 8-bit-per-channel colour, before shading and packing. */
@@ -20,12 +20,11 @@ struct Lighting {
     float ambient;
 };
 
-constexpr int TRIANGLE_CORNERS = 3;
-
-/** @brief One face as drawn: a screen-space triangle, its colour, and its numeral if it shows one. */
+/** @brief One face as drawn: a screen-space convex polygon, its colour, and its numeral if it shows one. */
 struct ScreenFace {
-    int16_t  x[TRIANGLE_CORNERS];
-    int16_t  y[TRIANGLE_CORNERS];
+    int16_t  x[FACE_MAX_CORNERS];
+    int16_t  y[FACE_MAX_CORNERS];
+    uint8_t  cornerCount;
     uint16_t color565;
     bool     showsNumeral;
     int16_t  numeralX;
@@ -35,7 +34,7 @@ struct ScreenFace {
 
 /** @brief The front faces of one die, in no particular order: a convex die's front faces never overlap. */
 struct DieView {
-    ScreenFace faces[D20_FACE_COUNT];
+    ScreenFace faces[DIE_MAX_FACES];
     uint8_t    faceCount;
 };
 
@@ -45,10 +44,11 @@ struct DieView {
  *
  * A face is drawn only if its normal has a component toward the camera; it shows its numeral
  * only if that component is at least @p numeralMinFacing, the cosine of the widest angle
- * from the camera at which a numeral still reads on so small a face.
+ * from the camera at which a numeral still reads on so small a face. @p pxPerUnit scales the
+ * shape's length unit to pixels, so the physics can keep real millimetres.
  */
-void viewDie(const D20Mesh& mesh, const Rotation& orientation, Vec3 centrePx, Rgb base, const Lighting& lighting,
-             float numeralMinFacing, DieView& view);
+void viewDie(const DieShape& shape, float pxPerUnit, const Rotation& orientation, Vec3 centrePx, Rgb base,
+             const Lighting& lighting, float numeralMinFacing, DieView& view);
 
 /** @brief Scale @p base by @p brightness (0 to 1) and pack it as the panel's RGB565. */
 uint16_t shadeRgb565(Rgb base, float brightness);

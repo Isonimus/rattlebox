@@ -8,7 +8,7 @@
 
 #include "../../boot/boot_steps.h"
 #include "../../debug/screen_capture.h"
-#include "../../geometry/d20_mesh.h"
+#include "../../geometry/die_shape.h"
 #include "../../geometry/rotation.h"
 #include "../../hal/hal.h"
 #include "../../render/die_drawing.h"
@@ -32,6 +32,8 @@ constexpr int CANVAS_COLOR_DEPTH = 16;
 // docs/roadmap.md puts a D20 face at about 12 px across; 24 px shows what a larger,
 // easier-to-read die would cost.
 constexpr float EDGES_PX[] = {12.0f, 24.0f};
+// The probe builds its dice in pixels, so they draw at a scale of one.
+constexpr float SHAPE_IN_PIXELS = 1.0f;
 constexpr uint8_t DIE_COUNT = 3;
 // Spread across the 240 × 135 tray so no two dice overlap even at 24 px (about 46 px across).
 constexpr Vec3 DIE_CENTRES_PX[DIE_COUNT] = {{48, 67, 0}, {120, 67, 0}, {192, 67, 0}};
@@ -113,13 +115,13 @@ uint16_t packed(Rgb color) { return shadeRgb565(color, 1.0f); }
 uint32_t elapsedUs(int64_t fromUs, int64_t toUs) { return static_cast<uint32_t>(toUs - fromUs); }
 
 /** @brief Clear, pose and draw the scene into @p canvas, recording each phase's duration for @p frame. */
-void drawScene(LGFX_Sprite& canvas, const D20Mesh& mesh, size_t frame) {
+void drawScene(LGFX_Sprite& canvas, const DieShape& shape, size_t frame) {
     const int64_t start = esp_timer_get_time();
     canvas.fillScreen(packed(TRAY_COLOR));
     const int64_t cleared = esp_timer_get_time();
     for (uint8_t die = 0; die < DIE_COUNT; die++) {
         const Rotation orientation = rotationAbout(SPIN_AXES[die], SPIN_RAD_PER_FRAME[die] * frame);
-        viewDie(mesh, orientation, DIE_CENTRES_PX[die], DIE_COLORS[die], LIGHTING, NUMERAL_MIN_FACING, views[die]);
+        viewDie(shape, SHAPE_IN_PIXELS, orientation, DIE_CENTRES_PX[die], DIE_COLORS[die], LIGHTING, NUMERAL_MIN_FACING, views[die]);
     }
     const int64_t posed = esp_timer_get_time();
     for (const DieView& view : views) drawDieFaces(canvas, view);
@@ -136,11 +138,11 @@ void drawScene(LGFX_Sprite& canvas, const D20Mesh& mesh, size_t frame) {
 /**
  * @brief Draw, then push and wait for the bus: the frame is the sum of the phases.
  */
-void runBlocking(const D20Mesh& mesh) {
+void runBlocking(const DieShape& shape) {
     lgfx::LGFX_Device& tft = hal.display.getDevice();
     int64_t lastFrameEnd = esp_timer_get_time();
     for (size_t frame = 0; frame < FRAMES_PER_RUN; frame++) {
-        drawScene(front.sprite(), mesh, frame);
+        drawScene(front.sprite(), shape, frame);
         const int64_t drawn = esp_timer_get_time();
         front.sprite().pushSprite(&tft, 0, 0);
         const int64_t pushed = esp_timer_get_time();
@@ -166,14 +168,14 @@ void startDmaPush(lgfx::LGFX_Device& tft, LGFX_Sprite& canvas) {
  * bus to go idle, so closing it after each push would quietly make every push blocking
  * (ADR-0007).
  */
-void runOverlapped(const D20Mesh& mesh) {
+void runOverlapped(const DieShape& shape) {
     lgfx::LGFX_Device& tft = hal.display.getDevice();
     LGFX_Sprite* drawing = &back.sprite();
     LGFX_Sprite* sending = &front.sprite();
     tft.startWrite();
     int64_t lastFrameEnd = esp_timer_get_time();
     for (size_t frame = 0; frame < FRAMES_PER_RUN; frame++) {
-        drawScene(*drawing, mesh, frame);
+        drawScene(*drawing, shape, frame);
         const int64_t drawn = esp_timer_get_time();
         tft.waitDMA();
         startDmaPush(tft, *drawing);
@@ -202,11 +204,11 @@ void reportRun(PushMode mode, float edgePx) {
 
 void runAllSizes(PushMode mode) {
     for (float edgePx : EDGES_PX) {
-        const D20Mesh mesh = makeD20(edgePx);
+        const DieShape shape = makeD20(edgePx);
         if (mode == PushMode::Blocking) {
-            runBlocking(mesh);
+            runBlocking(shape);
         } else {
-            runOverlapped(mesh);
+            runOverlapped(shape);
         }
         reportRun(mode, edgePx);
     }

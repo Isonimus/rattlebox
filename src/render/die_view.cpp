@@ -26,26 +26,27 @@ uint16_t shadeRgb565(Rgb base, float brightness) {
                                  b >> DROP_TO_5_BITS);
 }
 
-void viewDie(const D20Mesh& mesh, const Rotation& orientation, Vec3 centrePx, Rgb base, const Lighting& lighting,
-             float numeralMinFacing, DieView& view) {
-    Vec3 posed[D20_VERTEX_COUNT];
-    for (uint8_t i = 0; i < D20_VERTEX_COUNT; i++) posed[i] = rotate(orientation, mesh.vertices[i]);
+void viewDie(const DieShape& shape, float pxPerUnit, const Rotation& orientation, Vec3 centrePx, Rgb base,
+             const Lighting& lighting, float numeralMinFacing, DieView& view) {
+    Vec3 posedPx[DIE_MAX_VERTICES];
+    for (uint8_t i = 0; i < shape.vertexCount; i++) posedPx[i] = rotate(orientation, shape.vertices[i]) * pxPerUnit;
 
     view.faceCount = 0;
-    for (uint8_t i = 0; i < D20_FACE_COUNT; i++) {
-        const Vec3 normal = rotate(orientation, mesh.normals[i]);
+    for (uint8_t i = 0; i < shape.faceCount; i++) {
+        const DieFace& source = shape.faces[i];
+        const Vec3 normal = rotate(orientation, source.normal);
         const float facing = dot(normal, TOWARD_CAMERA);
         if (facing <= 0) continue;
 
-        const FaceVertices corners = mesh.faces[i];
-        const Vec3 points[TRIANGLE_CORNERS] = {posed[corners.a], posed[corners.b], posed[corners.c]};
         ScreenFace& face = view.faces[view.faceCount++];
+        face.cornerCount = source.cornerCount;
         float sumX = 0;
         float sumY = 0;
-        for (int corner = 0; corner < TRIANGLE_CORNERS; corner++) {
+        for (uint8_t corner = 0; corner < source.cornerCount; corner++) {
+            const Vec3 point = posedPx[source.corners[corner]];
             // Screen y grows downward, the tray's y upward.
-            const float x = centrePx.x + points[corner].x;
-            const float y = centrePx.y - points[corner].y;
+            const float x = centrePx.x + point.x;
+            const float y = centrePx.y - point.y;
             face.x[corner] = toPixel(x);
             face.y[corner] = toPixel(y);
             sumX += x;
@@ -54,8 +55,8 @@ void viewDie(const D20Mesh& mesh, const Rotation& orientation, Vec3 centrePx, Rg
         const float lit = fmaxf(0.0f, dot(normal, lighting.towardLight));
         face.color565 = shadeRgb565(base, lighting.ambient + (1.0f - lighting.ambient) * lit);
         face.showsNumeral = facing >= numeralMinFacing;
-        face.numeralX = toPixel(sumX / TRIANGLE_CORNERS);
-        face.numeralY = toPixel(sumY / TRIANGLE_CORNERS);
-        face.numeral = mesh.numerals[i];
+        face.numeralX = toPixel(sumX / source.cornerCount);
+        face.numeralY = toPixel(sumY / source.cornerCount);
+        face.numeral = source.numeral;
     }
 }
