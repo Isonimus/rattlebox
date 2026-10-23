@@ -229,49 +229,6 @@ int runTally(const char* name, const DieShape& shape, uint8_t dice, unsigned lon
     return 0;
 }
 
-/** @brief What replay and chain add up over their rolls, printed as one line. */
-struct ShakenTally {
-    unsigned long counts[DIE_MAX_FACES + 1];
-    unsigned long results;
-    unsigned long sameAsBefore;
-    unsigned long undetected;
-    unsigned long redetected;
-    unsigned long unsettled;
-    unsigned long nudges;
-    unsigned long knockedOver;
-    float         deepestOutsideMm;
-    float         fastestMmPerS;
-    double        totalS;
-    float         longestS;
-    unsigned long rolls;
-};
-
-void addShakenRoll(ShakenTally& tally, const ShakenOutcome& outcome) {
-    tally.rolls++;
-    tally.deepestOutsideMm = fmaxf(tally.deepestOutsideMm, outcome.deepestOutsideMm);
-    tally.fastestMmPerS = fmaxf(tally.fastestMmPerS, outcome.fastestMmPerS);
-    if (outcome.detections == 0) {
-        tally.undetected++;
-        return;
-    }
-    if (outcome.detections > 1) tally.redetected++;
-    const RollOutcome& roll = outcome.roll;
-    tally.nudges += roll.nudges;
-    tally.totalS += roll.seconds;
-    tally.longestS = fmaxf(tally.longestS, roll.seconds);
-    if (!roll.settled) {
-        tally.unsettled++;
-        return;
-    }
-    for (uint8_t die = 0; die < roll.dieCount; die++) {
-        const uint8_t numeral = roll.results[die].numeral;
-        tally.counts[numeral]++;
-        tally.results++;
-        if (numeral == outcome.startNumerals[die]) tally.sameAsBefore++;
-        if (numeral != roll.shownNumerals[die]) tally.knockedOver++;
-    }
-}
-
 void printShakenTally(const ShakenTally& tally, uint8_t faceCount, clock_t start) {
     printf("counts=");
     for (uint8_t numeral = 1; numeral <= faceCount; numeral++) printf(numeral > 1 ? ",%lu" : "%lu", tally.counts[numeral]);
@@ -284,18 +241,7 @@ void printShakenTally(const ShakenTally& tally, uint8_t faceCount, clock_t start
            detected ? tally.totalS / detected : 0.0, tally.longestS, secondsSince(start));
 }
 
-/** @brief A World of @p dice dice of @p shape resting where a left-alone roll leaves them, or false if it never settled. */
-bool restingWorld(World& world, const DieShape& shape, uint8_t dice, UniformSource& source) {
-    world = World{};
-    world.shape = &shape;
-    return simulateRollIn(world, dice, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S, nullptr).settled;
-}
-
-float durationS(const ShakeRecording& recording) {
-    return (recording.samples.back().timestampUs - recording.samples.front().timestampUs) / 1e6f;
-}
-
-int runReplay(const DieShape& shape, uint8_t dice, unsigned long trials, unsigned long seed, KickPlan kick, const char* kickText,
+int runReplay(const char* name, const DieShape& shape, uint8_t dice, unsigned long trials, unsigned long seed, KickPlan kick, const char* kickText,
               const char* extraText, const char* path) {
     const ShakeRecording recording = loadRecording(path);
     float extraS = durationS(recording);
@@ -306,40 +252,32 @@ int runReplay(const DieShape& shape, uint8_t dice, unsigned long trials, unsigne
     const clock_t start = clock();
     for (unsigned long trial = 0; trial < trials; trial++) {
         World world{};
-        if (!restingWorld(world, shape, dice, source)) {
+        if (!restingWorld(world, shape, dice, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S)) {
             unsettledStarts++;
             continue;
         }
         addShakenRoll(tally, simulateShakenRoll(world, recording, extraS, kick, source, PRODUCT_REST_THRESHOLDS,
                                                 TALLY_TIME_LIMIT_S));
     }
-    printf("[replay] file=%s dice=%u kick=%s extra_s=%.3f seed=%lu unsettled_starts=%lu ", path,
+    printf("[replay] file=%s die=%s dice=%u kick=%s extra_s=%.3f seed=%lu unsettled_starts=%lu ", path, name,
            static_cast<unsigned>(dice), kickText, extraS, seed, unsettledStarts);
     printShakenTally(tally, shape.faceCount, start);
     return 0;
 }
 
-int runChain(const DieShape& shape, uint8_t dice, unsigned long rolls, unsigned long seed, KickPlan kick, const char* kickText,
+int runChain(const char* name, const DieShape& shape, uint8_t dice, unsigned long rolls, unsigned long seed, KickPlan kick, const char* kickText,
              char** paths, int pathCount) {
     std::vector<ShakeRecording> recordings;
     for (int i = 0; i < pathCount; i++) recordings.push_back(loadRecording(paths[i]));
     SeededSource source(seed);
     World world{};
-    if (!restingWorld(world, shape, dice, source)) {
+    if (!restingWorld(world, shape, dice, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S)) {
         fprintf(stderr, "the first roll never came to rest\n");
         return EXIT_FAILURE;
     }
-    ShakenTally tally{};
     const clock_t start = clock();
-    for (unsigned long roll = 0; roll < rolls; roll++) {
-        // One draw per statement, so the same seed picks the same way on every compiler.
-        const size_t pick = static_cast<size_t>(source.nextUnit() * recordings.size());
-        const ShakeRecording& recording = recordings[pick];
-        const float extraS = source.nextUnit() * durationS(recording);
-        addShakenRoll(tally, simulateShakenRoll(world, recording, extraS, kick, source, PRODUCT_REST_THRESHOLDS,
-                                                TALLY_TIME_LIMIT_S));
-    }
-    printf("[chain] dice=%u kick=%s seed=%lu recordings=%d ", static_cast<unsigned>(dice),
+    const ShakenTally tally = chainRolls(world, recordings, rolls, kick, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S);
+    printf("[chain] die=%s dice=%u kick=%s seed=%lu recordings=%d ", name, static_cast<unsigned>(dice),
            kickText, seed, pathCount);
     printShakenTally(tally, shape.faceCount, start);
     return 0;
@@ -368,10 +306,10 @@ int main(int argc, char** argv) {
     const bool shakenHead = argc >= 8 && parseShape(argv[2], shape) && parseCount(argv[3], dice) && dice <= MAX_DICE &&
                             parseCount(argv[4], rolls) && parseCount(argv[5], seed) && parseKick(argv[6], kick);
     if (strcmp(argv[1], "replay") == 0 && argc == 9 && shakenHead) {
-        return runReplay(shape, static_cast<uint8_t>(dice), rolls, seed, kick, argv[6], argv[7], argv[8]);
+        return runReplay(argv[2], shape, static_cast<uint8_t>(dice), rolls, seed, kick, argv[6], argv[7], argv[8]);
     }
     if (strcmp(argv[1], "chain") == 0 && shakenHead) {
-        return runChain(shape, static_cast<uint8_t>(dice), rolls, seed, kick, argv[6], argv + 7, argc - 7);
+        return runChain(argv[2], shape, static_cast<uint8_t>(dice), rolls, seed, kick, argv[6], argv + 7, argc - 7);
     }
     return usage();
 }

@@ -2,7 +2,7 @@
 id: '0002'
 title: "Dice results: the face the simulated die rests on, with a randomized launch and fairness measured on the host"
 type: architecture
-status: accepted
+status: amended
 date: 2026-10-22
 supersedes: []
 superseded_by: []
@@ -47,6 +47,9 @@ measured: the simulation is plain C++ and runs on the host.
   velocity and offsets. `esp_random()` is a true RNG only while the radio is on or after
   `bootloader_random_enable()`, so the firmware turns an entropy source on explicitly. Shake
   energy scales how hard the dice are thrown, not which face comes up.
+  *Amended 2026-10-24 by ADR-0010: a shake is not an impulse. The device's measured motion is
+  the tray's gravity, and at each detected shake every die is thrown and spun to a uniformly
+  random orientation.*
 - **A result locks the first time its die comes to rest**, meaning its linear and angular
   speed stay below thresholds for a hold time. Moving the die afterwards, by tilting or a
   later collision, does not change the reported result. Only a new roll does. The
@@ -68,6 +71,9 @@ measured: the simulation is plain C++ and runs on the host.
 - The host test covers rolls left alone on a level tray. Tilting during a roll is the
   player's influence on a moving die, just as with a real tray, and the test does not
   measure it. It ends at the lock.
+  *Amended 2026-10-24 by ADR-0010: the device's own motion now moves the dice and each roll
+  starts where the last one ended, so the test chains rolls on recorded shakes and also checks
+  how often a result repeats the die's previous face.*
 - Each new die type is shippable only once it passes the fairness test (invariant #2 in
   `CLAUDE.md`).
 - Sphere collisions between dice can let two dice overlap slightly on screen. That is

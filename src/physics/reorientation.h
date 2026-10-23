@@ -6,6 +6,14 @@
 #include "world.h"
 
 /**
+ * @brief How long the product's spin takes (ADR-0010). With a gentle shake ending right at
+ * detection, a D6 came back on its previous face 17.6% of the time at 0.05 s (p 0.020 against the
+ * 16.7% chance), 17.3% at 0.1 s (p 0.11), 15.8% at 0.2 s (p 0.022) and 15.1% at 0.4 s (p below
+ * 0.001): the closest to chance of the four. Why longer spins fall below chance was not established.
+ */
+constexpr float REORIENTATION_S = 0.1f;
+
+/**
  * @brief A die spun to a fresh random orientation over a set time, instead of jumping to it.
  *
  * A shake alone, or a throw, leaves a die near the face it rested on; only a fresh uniformly random

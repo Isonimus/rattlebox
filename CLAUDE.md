@@ -133,7 +133,7 @@ actually wired (R11), so a row cannot claim a check that runs nowhere.
 | # | Invariant | Source | Enforced by |
 |---|---|---|---|
 | 1 | A change to anything shared by both boards (`src/hal/*.h`, and any code outside `src/hal/boards/`) is done only once both `cardputer` and `m5stickc-plus2` build. One env compiles one board's folder, so a single-env build proves nothing about the other. | ADR-0001 | pending (LEDGER) |
-| 2 | A die type ships only with a passing host fairness test: a chi-square goodness-of-fit test over simulated rolls through the real physics code. | ADR-0002, ADR-0009 | verified_by: `test/test_fairness` (`npm test`) |
+| 2 | A die type ships only with a passing host fairness test over rolls through the real physics code, chained one after another on recorded shakes: chi-square goodness of fit of the results, and the share of results on the die's previous face against chance. One die at a time runs in `npm test`; three at a time run with `npm run test:fairness` before a change to the physics, its constants, the throw, the spin, the shake detector, the tray gravity or the shake fixtures merges. | ADR-0002, ADR-0009, ADR-0010 | verified_by: `test/test_fairness` (`npm test`, one die); three dice: pending (LEDGER) |
 | 3 | A die's reported result never changes after it locks at first rest; only a new roll replaces it. | ADR-0002, ADR-0009 | verified_by: `test/test_die_result` (`npm test`) |
 | 4 | Timing derived from IMU samples uses their timestamps, never the configured output rate: the chips' clocks were measured up to 1.1% off it. | ADR-0005 | review-only |
 

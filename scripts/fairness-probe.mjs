@@ -3,17 +3,23 @@
 // are chosen from, and tallies rolls of each die type through the real physics for the
 // chi-square test of invariant #2.
 //
-// Builds the native-fairness-probe env, runs its traces and tallies in parallel, and fails on a
-// failed build, a program error, a roll that never settled, a tally below the significance level,
-// or a run that never reported. Writes artifacts/fairness-probe/summary.{json,md}.
+// It also replays the shakes recorded by the IMU probe through the physics, as the device's own
+// motion (ADR-0010): how often a die comes back on the face it rested on before the shake, with
+// each kick at detection, and chained rolls where every roll starts where the last one ended.
 //
-// Usage: node scripts/fairness-probe.mjs
+// Builds the native-fairness-probe env, runs everything in parallel, and fails on a failed build,
+// a program error, a roll that never settled, a shake never detected, a tally or a repeat share
+// below the significance level with the product's kick, or a run that never reported. Writes
+// artifacts/fairness-probe/summary.{json,md}.
+//
+// Usage: node scripts/fairness-probe.mjs (about ten minutes on 12 cores)
 //
 // Everything above main() is pure and tested by scripts/fairness-probe.test.mjs.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { availableParallelism } from 'node:os';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const ENV = 'native-fairness-probe';
@@ -33,6 +39,53 @@ export const TALLY_SIZES = [
   { die: 'D6', dice: 3, rolls: 1134 },
 ];
 export const FACES = { D6: 6, D20: 20 };
+
+// The IMU probe's shake takes at the product's 100 Hz (ADR-0005), trimmed to t_us,ax,ay,az.
+const SHAKES_DIR = join('test', 'fixtures', 'shakes');
+const BOARDS = ['cardputer', 'm5stickc-plus2'];
+const TAKE_NUMBERS = [1, 2, 3];
+function takes(gesture) {
+  return BOARDS.flatMap((board) => TAKE_NUMBERS.map((n) => join(SHAKES_DIR, `${board}-shake-${gesture}-${n}.csv`)));
+}
+export const GENTLE_TAKES = takes('gentle');
+export const HARD_TAKES = takes('hard');
+export const ALL_TAKES = [...GENTLE_TAKES, ...HARD_TAKES];
+
+// What the product does at detection (ADR-0010): a throw, and a 0.1 s spin to a uniformly random
+// orientation. Only its runs can fail the probe; the other kicks are the evidence for choosing it.
+export const PRODUCT_KICK = 'spin=0.1';
+// Each take rolls from its own seed, SHAKE_SEED plus its place in ALL_TAKES: on one seed every take
+// would start from the same resting dice, and the takes pooled would not be independent rolls.
+export const SHAKE_SEED = 1;
+// 1500 rolls of each take, 9000 pooled over six: a standard error of 0.39 points on a D6's
+// repeat share of 16.7%.
+export const REPLAY_TRIALS = 1500;
+// How long the shake goes on after detection before the device is held still (s): right at
+// detection is where a gentle shake has had least time to stir the dice.
+const CUTS = [0, 0.5, 1];
+
+function replays(dice, kicks, files, cuts) {
+  return dice.flatMap((die) => kicks.flatMap((kick) => files.flatMap((file) => cuts.map((cut) => ({
+    die, kick, file, cut, seed: SHAKE_SEED + ALL_TAKES.indexOf(file),
+  })))));
+}
+
+export const REPLAYS = [
+  // Gentle shakes slide the dice rather than tumbling them, so they show any kick's leftover pull.
+  ...replays(['D6', 'D20'], ['none', 'throw', 'reorient', PRODUCT_KICK], GENTLE_TAKES, CUTS),
+  // How short the spin may be, and how long, on the die that keeps its face most.
+  ...replays(['D6'], ['spin=0.05', 'spin=0.2', 'spin=0.4'], GENTLE_TAKES, [0]),
+  // Hard shakes, with no kick at all.
+  ...replays(['D6', 'D20'], ['none'], HARD_TAKES, [0]),
+];
+
+// Rolls one after another, each starting where the last ended, on a random take cut at a random
+// time: the tally of invariant #2 as the device rolls. The throw alone is chained too, because its
+// results pass chi-square while it repeats the last result far above chance.
+export const CHAINS = [
+  ...TALLY_SIZES.flatMap((size) => TALLY_SEEDS.map((seed) => ({ ...size, seed, kick: PRODUCT_KICK }))),
+  ...TALLY_SIZES.filter((size) => size.die === 'D6').flatMap((size) => TALLY_SEEDS.map((seed) => ({ ...size, seed, kick: 'throw' }))),
+];
 
 const GRID = /^\[trace-grid\] linear=([\d.,]+) angular=([\d.,]+)$/;
 const KEY_VALUES = /(\w+)=(\S+)/g;
@@ -81,7 +134,46 @@ export function parseProbeLine(line) {
       runtimeS: Number(fields.runtime_s),
     };
   }
+  if (line.startsWith('[replay] ')) {
+    const fields = keyValues(line);
+    return {
+      kind: 'replay',
+      file: fields.file,
+      extraS: Number(fields.extra_s),
+      unsettledStarts: Number(fields.unsettled_starts),
+      ...shakenFields(fields),
+    };
+  }
+  if (line.startsWith('[chain] ')) {
+    const fields = keyValues(line);
+    return { kind: 'chain', recordings: Number(fields.recordings), ...shakenFields(fields) };
+  }
   throw new Error(`unexpected probe output: ${line}`);
+}
+
+function shakenFields(fields) {
+  return {
+    die: fields.die,
+    dice: Number(fields.dice),
+    kick: fields.kick,
+    seed: Number(fields.seed),
+    counts: numbers(fields.counts),
+    rolls: Number(fields.rolls),
+    results: Number(fields.results),
+    // Results on the face their die showed before the shake.
+    sameAsBefore: Number(fields.same_as_before),
+    undetected: Number(fields.undetected),
+    // Rolls the detector started more than once, the shake dipping below its share and back.
+    redetected: Number(fields.redetected),
+    unsettled: Number(fields.unsettled),
+    nudges: Number(fields.nudges),
+    knockedOver: Number(fields.knocked_over),
+    deepestOutsideMm: Number(fields.deepest_outside_mm),
+    fastestMmPerS: Number(fields.fastest_mm_per_s),
+    meanRollS: Number(fields.mean_roll_s),
+    longestRollS: Number(fields.longest_roll_s),
+    runtimeS: Number(fields.runtime_s),
+  };
 }
 
 // ---------------------------------------------------------------- statistics
@@ -137,6 +229,16 @@ function upperGamma(a, x) {
 /** The chance of a chi-square statistic at least this large from a fair die. */
 export function chiSquarePValue(statistic, degreesOfFreedom) {
   return upperGamma(degreesOfFreedom / 2, statistic / 2);
+}
+
+/**
+ * The chance, two-sided, of a die landing on its previous face this far from 1 in faces times:
+ * the normal approximation to the binomial, whose square is chi-square with one degree of freedom.
+ */
+export function repeatPValue(repeats, results, faces) {
+  const chance = 1 / faces;
+  const z = (repeats - results * chance) / Math.sqrt(results * chance * (1 - chance));
+  return chiSquarePValue(z * z, 1);
 }
 
 export function chiSquareStatistic(counts) {
@@ -206,6 +308,74 @@ export function summarizeTally(tally) {
   };
 }
 
+export function summarizeChain(chain) {
+  const faces = FACES[chain.die];
+  const statistic = chiSquareStatistic(chain.counts);
+  return {
+    ...chain,
+    statistic,
+    pValue: chiSquarePValue(statistic, faces - 1),
+    repeatShare: chain.sameAsBefore / chain.results,
+    repeatPValue: repeatPValue(chain.sameAsBefore, chain.results, faces),
+    nudgesPerDie: chain.nudges / chain.results,
+    knockedOverShare: chain.knockedOver / chain.results,
+    chanceShare: 1 / faces,
+  };
+}
+
+function gesture(file) {
+  return /-shake-(\w+)-\d+\.csv$/.exec(file)?.[1] ?? basename(file);
+}
+
+/** Replays pooled over their takes: one entry per die, gesture, kick and cut, in run order. */
+export function poolReplays(parsed) {
+  const pools = new Map();
+  for (const run of parsed.filter((entry) => entry.kind === 'replay')) {
+    const key = [run.die, gesture(run.file), run.kick, run.extraS].join('|');
+    if (!pools.has(key)) {
+      pools.set(key, {
+        die: run.die, gesture: gesture(run.file), kick: run.kick, cut: run.extraS,
+        takes: 0, results: 0, sameAsBefore: 0, worstTakeShare: 0, redetected: 0, rolls: 0, deepestOutsideMm: 0, fastestMmPerS: 0,
+      });
+    }
+    const pool = pools.get(key);
+    pool.takes++;
+    pool.results += run.results;
+    pool.sameAsBefore += run.sameAsBefore;
+    pool.worstTakeShare = Math.max(pool.worstTakeShare, run.sameAsBefore / run.results);
+    pool.redetected += run.redetected;
+    pool.rolls += run.rolls;
+    pool.deepestOutsideMm = Math.max(pool.deepestOutsideMm, run.deepestOutsideMm);
+    pool.fastestMmPerS = Math.max(pool.fastestMmPerS, run.fastestMmPerS);
+  }
+  return [...pools.values()].map((pool) => ({
+    ...pool,
+    repeatShare: pool.sameAsBefore / pool.results,
+    repeatPValue: repeatPValue(pool.sameAsBefore, pool.results, FACES[pool.die]),
+    chanceShare: 1 / FACES[pool.die],
+  }));
+}
+
+function replayLabel(run) {
+  return `${run.die} ${run.kick} cut ${run.extraS ?? run.cut} s ${basename(run.file)}`;
+}
+
+function chainLabel(chain) {
+  return `chain ${chain.die} ×${chain.dice} ${chain.kick} seed ${chain.seed}`;
+}
+
+/** Shaken runs' failures: a shake never detected, a roll never settled, or a die short of faces. */
+function checkShakenRuns(runs, label) {
+  const failures = [];
+  for (const run of runs) {
+    if (run.counts.length !== FACES[run.die]) failures.push(`${label(run)}: ${run.counts.length} counts for ${FACES[run.die]} faces`);
+    if (run.undetected > 0) failures.push(`${label(run)}: ${run.undetected} shakes never detected`);
+    if (run.unsettled > 0) failures.push(`${label(run)}: ${run.unsettled} rolls never came to rest`);
+    if (run.unsettledStarts > 0) failures.push(`${label(run)}: ${run.unsettledStarts} launches before the shake never came to rest`);
+  }
+  return failures;
+}
+
 /** Every failure across the probe's output: unsettled rolls, unfair tallies, missing runs. */
 export function checkRuns(parsed) {
   const failures = [];
@@ -229,7 +399,69 @@ export function checkRuns(parsed) {
     const count = parsed.filter((entry) => entry.kind === 'trace' && entry.die === trace.die).length;
     if (count !== trace.rolls) failures.push(`${trace.die}: ${count} traces of ${trace.rolls}`);
   }
+
+  const replayRuns = parsed.filter((entry) => entry.kind === 'replay');
+  const chains = parsed.filter((entry) => entry.kind === 'chain');
+  failures.push(...checkShakenRuns(replayRuns, replayLabel), ...checkShakenRuns(chains, chainLabel));
+  // Written so a NaN, from no results, fails rather than slipping past.
+  for (const chain of chains.filter((entry) => entry.kick === PRODUCT_KICK).map(summarizeChain)) {
+    if (!(chain.pValue >= ALPHA)) failures.push(`${chainLabel(chain)}: chi-square p = ${chain.pValue.toExponential(2)}, below ${ALPHA}`);
+    if (!(chain.repeatPValue >= ALPHA)) {
+      failures.push(`${chainLabel(chain)}: ${(100 * chain.repeatShare).toFixed(2)}% on the previous face, p = ${chain.repeatPValue.toExponential(2)}, below ${ALPHA}`);
+    }
+  }
+  for (const pool of poolReplays(parsed).filter((entry) => entry.kick === PRODUCT_KICK)) {
+    if (!(pool.repeatPValue >= ALPHA)) {
+      failures.push(`${pool.die} ${pool.kick} ${pool.gesture} cut ${pool.cut} s: ${(100 * pool.repeatShare).toFixed(2)}% on the previous face, p = ${pool.repeatPValue.toExponential(2)}, below ${ALPHA}`);
+    }
+  }
+  for (const planned of REPLAYS) {
+    if (!replayRuns.some((r) => r.die === planned.die && r.kick === planned.kick && r.file === planned.file && r.extraS === planned.cut && r.seed === planned.seed && r.rolls === REPLAY_TRIALS)) {
+      failures.push(`no replay of ${REPLAY_TRIALS} rolls for ${replayLabel(planned)}`);
+    }
+  }
+  for (const planned of CHAINS) {
+    if (!chains.some((c) => c.die === planned.die && c.dice === planned.dice && c.kick === planned.kick && c.seed === planned.seed && c.rolls === planned.rolls)) {
+      failures.push(`no chain of ${planned.rolls} rolls for ${chainLabel(planned)}`);
+    }
+  }
   return failures;
+}
+
+function percent(share) {
+  return `${(100 * share).toFixed(2)}%`;
+}
+
+export function shakeMarkdown(pools, chains) {
+  const lines = ['## Shakes: results on the face the die showed before', ''];
+  lines.push(`One die, ${REPLAY_TRIALS} rolls per take, pooled over the takes; the cut is how long the shake went on after detection before the device was held still. Chance: D6 16.67%, D20 5.00%. p is two-sided, against chance.`, '');
+  const cuts = [...new Set(pools.map((pool) => pool.cut))].sort((a, b) => a - b);
+  lines.push(`| Die | Shakes | Kick | ${cuts.map((cut) => `Cut ${cut} s: pooled (worst take), p`).join(' | ')} |`);
+  lines.push(`|---|---|---|${cuts.map(() => '---').join('|')}|`);
+  const rows = new Map();
+  for (const pool of pools) {
+    const key = [pool.die, pool.gesture, pool.kick].join('|');
+    if (!rows.has(key)) rows.set(key, { pool, byCut: new Map() });
+    rows.get(key).byCut.set(pool.cut, pool);
+  }
+  for (const { pool, byCut } of rows.values()) {
+    const cells = cuts.map((cut) => {
+      const cell = byCut.get(cut);
+      return cell ? `${percent(cell.repeatShare)} (${percent(cell.worstTakeShare)}), ${cell.repeatPValue.toFixed(3)}` : '';
+    });
+    lines.push(`| ${pool.die} | ${pool.gesture} | ${pool.kick} | ${cells.join(' | ')} |`);
+  }
+  const product = pools.filter((pool) => pool.kick === PRODUCT_KICK);
+  if (product.length > 0) {
+    lines.push('', `With ${PRODUCT_KICK}: deepest vertex past a wall ${Math.max(...product.map((p) => p.deepestOutsideMm)).toFixed(4)} mm, fastest die ${Math.max(...product.map((p) => p.fastestMmPerS)).toFixed(0)} mm/s, ${product.reduce((sum, p) => sum + p.redetected, 0)} of ${product.reduce((sum, p) => sum + p.rolls, 0)} rolls detected more than once.`);
+  }
+  lines.push('', '## Shakes: chained rolls', '');
+  lines.push('| Die | Dice | Kick | Seed | Results | χ² | p | On the previous face (chance) | p | Detected more than once | Nudges per die | Knocked over after locking | Mean / longest roll from detection (s) | Deepest past a wall (mm) | Fastest (mm/s) | Runtime (s) |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const c of chains) {
+    lines.push(`| ${c.die} | ${c.dice} | ${c.kick} | ${c.seed} | ${c.results} | ${c.statistic.toFixed(2)} | ${c.pValue.toFixed(3)} | ${percent(c.repeatShare)} (${percent(c.chanceShare)}) | ${c.repeatPValue.toFixed(3)} | ${c.redetected} of ${c.rolls} | ${c.nudgesPerDie.toFixed(3)} | ${percent(c.knockedOverShare)} | ${c.meanRollS.toFixed(2)} / ${c.longestRollS.toFixed(2)} | ${c.deepestOutsideMm.toFixed(4)} | ${c.fastestMmPerS.toFixed(0)} | ${c.runtimeS.toFixed(1)} |`);
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 export function summaryMarkdown(traces, tallies) {
@@ -258,6 +490,30 @@ export function summaryMarkdown(traces, tallies) {
 
 // ---------------------------------------------------------------- process handling
 
+/**
+ * Run every set of arguments through @p run, at most @p limit at once, and return their parsed lines
+ * in run order. The first failure stops new runs from starting, so it is reported in seconds rather
+ * than after the rest of the queue.
+ */
+export async function runAll(runs, limit, run) {
+  const outputs = new Array(runs.length);
+  let next = 0;
+  let failed = false;
+  async function worker() {
+    while (!failed && next < runs.length) {
+      const index = next++;
+      try {
+        outputs[index] = await run(runs[index]);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, runs.length) }, worker));
+  return outputs.flat();
+}
+
 function runProgram(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(PROGRAM, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -277,26 +533,31 @@ async function main() {
   const build = spawnSync('pio', ['run', '-e', ENV], { encoding: 'utf8' });
   if (build.status !== 0) throw new Error(`pio run -e ${ENV} failed:\n${build.stdout}${build.stderr}`);
 
-  console.log('Running traces and tallies; about a minute...');
+  console.log('Running traces, tallies, replays and chains; about ten minutes on 12 cores...');
+  // The chains are the longest runs, so they start first rather than finishing last alone.
   const runs = [
+    ...CHAINS.map((c) => ['chain', c.die, String(c.dice), String(c.rolls), String(c.seed), c.kick, ...ALL_TAKES]),
     ...TRACES.map((t) => ['trace', t.die, String(t.rolls), String(t.seed)]),
     ...TALLY_SIZES.flatMap((size) => TALLY_SEEDS.map((seed) => ['tally', size.die, String(size.dice), String(size.rolls), String(seed)])),
+    ...REPLAYS.map((r) => ['replay', r.die, '1', String(REPLAY_TRIALS), String(r.seed), r.kick, String(r.cut), r.file]),
   ];
-  const parsed = (await Promise.all(runs.map(runProgram))).flat();
+  const parsed = await runAll(runs, availableParallelism(), runProgram);
   const failures = checkRuns(parsed);
 
   const traces = summarizeTraces(parsed);
   const tallies = parsed.filter((entry) => entry.kind === 'tally').map(summarizeTally);
+  const pools = poolReplays(parsed);
+  const chains = parsed.filter((entry) => entry.kind === 'chain').map(summarizeChain);
   const outDir = join('artifacts', 'fairness-probe');
   mkdirSync(outDir, { recursive: true });
-  writeFileSync(join(outDir, 'summary.json'), `${JSON.stringify({ traces, tallies, failures }, null, 2)}\n`);
-  writeFileSync(join(outDir, 'summary.md'), summaryMarkdown(traces, tallies));
+  writeFileSync(join(outDir, 'summary.json'), `${JSON.stringify({ traces, tallies, pools, chains, failures }, null, 2)}\n`);
+  writeFileSync(join(outDir, 'summary.md'), `${summaryMarkdown(traces, tallies)}\n${shakeMarkdown(pools, chains)}`);
   console.log(`Artifacts in ${outDir}`);
   if (failures.length > 0) {
     console.error(`FAILED:\n  ${failures.join('\n  ')}`);
     process.exit(1);
   }
-  console.log('PASSED: every tally settled and none fell below the significance level');
+  console.log('PASSED: every roll settled, every shake was detected, and no check fell below the significance level');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

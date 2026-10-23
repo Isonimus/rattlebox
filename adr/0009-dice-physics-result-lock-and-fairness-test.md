@@ -2,7 +2,7 @@
 id: '0009'
 title: "Dice physics in 1/240 s steps with warm-started speculative contacts; results lock after 0.15 s below 5 mm/s and 0.5 rad/s, cocked dice get a random nudge, and fairness is tested on 18,000 D20 and 3,400 D6 results at α = 0.001"
 type: architecture
-status: accepted
+status: amended
 date: 2026-10-23
 supersedes: []
 superseded_by: []
@@ -117,6 +117,8 @@ modref summaries for these functions looked correct; it has not run them on a de
 - **Invariant #2's test is `test/test_fairness`**: one die and three dice of each type, 18,000 D20
   and 3,400 D6 results, chi-square at α = 0.001, seed 1, every roll required to settle; and a
   loaded D20 that must fail. **Invariant #3's test is `test/test_die_result`.**
+  *Amended 2026-10-24 by ADR-0010: the rolls are chained on recorded shakes, a second check
+  counts results on the die's previous face, and three dice run with `npm run test:fairness`.*
 - **Host tests build at -O2 with `-fno-ipa-modref`.** `test_launch`'s uniformity test is the guard
   against that miscompile coming back.
 

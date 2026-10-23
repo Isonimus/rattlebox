@@ -4,8 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  TALLY_SEEDS, TALLY_SIZES, TRACES, checkRuns, chiSquarePValue, chiSquareStatistic, parseProbeLine,
-  summarizeTally, summarizeTraces, summaryMarkdown, tiltGap,
+  ALL_TAKES, CHAINS, FACES, PRODUCT_KICK, REPLAYS, REPLAY_TRIALS, TALLY_SEEDS, TALLY_SIZES, TRACES, checkRuns, chiSquarePValue,
+  chiSquareStatistic, parseProbeLine, poolReplays, repeatPValue, runAll, shakeMarkdown, summarizeChain, summarizeTally,
+  summarizeTraces, summaryMarkdown, tiltGap,
 } from './fairness-probe.mjs';
 
 const GRID = '[trace-grid] linear=1,5 angular=0.1,0.5';
@@ -24,14 +25,48 @@ function tally(die, dice, seed, counts, extra = {}) {
 const FAIR_D20 = Array(20).fill(900);
 const FAIR_D6 = Array(6).fill(567);
 
-/** A complete, passing run: every trace and every tally the probe runs. */
+/** @p results spread as evenly as whole counts allow over @p faces. */
+function even(results, faces) {
+  return Array.from({ length: faces }, (_, face) => Math.floor(results / faces) + (face < results % faces ? 1 : 0));
+}
+
+/** The fields replay and chain lines share, for @p results results of which @p same repeat. */
+function shakenTail(die, rolls, results, same, extra) {
+  const fields = { rolls, results, same_as_before: same, undetected: 0, redetected: 3, unsettled: 0, nudges: 6, knocked_over: 0, deepest_outside_mm: '0.0100', fastest_mm_per_s: '4000.0', mean_roll_s: '3.1', longest_roll_s: '6.0', runtime_s: '9.0', ...extra };
+  return `counts=${even(results, FACES[die]).join(',')} ${Object.entries(fields).map(([key, value]) => `${key}=${value}`).join(' ')}`;
+}
+
+function replay({ die, kick, file, cut, seed }, same = REPLAY_TRIALS / FACES[die], extra = {}) {
+  return `[replay] file=${file} die=${die} dice=1 kick=${kick} extra_s=${cut.toFixed(3)} seed=${seed} unsettled_starts=0 ${shakenTail(die, REPLAY_TRIALS, REPLAY_TRIALS, same, extra)}`;
+}
+
+function chain({ die, dice, rolls, seed, kick }, same = Math.round((rolls * dice) / FACES[die]), extra = {}) {
+  return `[chain] die=${die} dice=${dice} kick=${kick} seed=${seed} recordings=12 ${shakenTail(die, rolls, rolls * dice, same, extra)}`;
+}
+
+/** A complete, passing run: every trace, tally, replay and chain the probe runs. */
 function completeRun() {
   const lines = [GRID];
   for (const t of TRACES) for (let i = 0; i < t.rolls; i++) lines.push(trace(t.die, '0.0000'));
   for (const size of TALLY_SIZES) {
     for (const seed of TALLY_SEEDS) lines.push(tally(size.die, size.dice, seed, size.die === 'D20' ? FAIR_D20 : FAIR_D6));
   }
+  for (const planned of REPLAYS) lines.push(replay(planned));
+  for (const planned of CHAINS) lines.push(chain(planned));
   return lines.map(parseProbeLine);
+}
+
+const PRODUCT_D6_CHAIN = CHAINS.find((c) => c.kick === PRODUCT_KICK && c.die === 'D6' && c.dice === 1 && c.seed === 1);
+
+/** @p run with its first entry matching @p match parsed from @p line instead. */
+function replacing(run, match, line) {
+  const index = run.findIndex(match);
+  assert.ok(index >= 0, 'nothing to replace');
+  return run.map((entry, i) => (i === index ? parseProbeLine(line) : entry));
+}
+
+function isPlannedChain(planned) {
+  return (entry) => entry.kind === 'chain' && entry.die === planned.die && entry.dice === planned.dice && entry.kick === planned.kick && entry.seed === planned.seed;
 }
 
 test('the chi-square p-value matches tabulated points', () => {
@@ -123,4 +158,111 @@ test('the summary reports shares against chance and a row per tally', () => {
   assert.equal(summary.nudgesPerDie, 0.25);
   const markdown = summaryMarkdown(summarizeTraces([GRID, trace('D20', '0')].map(parseProbeLine)), [summary]);
   assert.match(markdown, /\| D20 \| 1 \| 1 \| 18000 \| 0\.00 \| 1\.000 \| 0\.250 \| 2 \| 5\.0% \(5\.0%\) \| 0\.10% \|/);
+});
+
+test('the repeat p-value matches two-sided points of the normal distribution', () => {
+  // z = 1.96 leaves 5%, z = 3.2905 leaves 0.1%; n = 3600 at 1 in 6 has a standard deviation of 22.36.
+  const sd = Math.sqrt(3600 * (1 / 6) * (5 / 6));
+  assert.ok(Math.abs(repeatPValue(600 + 1.96 * sd, 3600, 6) - 0.05) < 1e-4);
+  assert.ok(Math.abs(repeatPValue(600 - 3.2905 * sd, 3600, 6) - 0.001) < 1e-5);
+  assert.equal(repeatPValue(600, 3600, 6), 1);
+  assert.ok(Number.isNaN(repeatPValue(0, 0, 6)));
+});
+
+test('replay and chain lines parse into their fields', () => {
+  const planned = REPLAYS.find((r) => r.kick === PRODUCT_KICK && r.die === 'D20');
+  const parsed = parseProbeLine(replay(planned, 80, { redetected: 7 }));
+  assert.equal(parsed.kind, 'replay');
+  assert.equal(parsed.file, planned.file);
+  assert.equal(parsed.kick, PRODUCT_KICK);
+  assert.equal(parsed.extraS, planned.cut);
+  assert.equal(parsed.sameAsBefore, 80);
+  assert.equal(parsed.redetected, 7);
+  assert.equal(parsed.counts.length, 20);
+  const chained = parseProbeLine(chain(PRODUCT_D6_CHAIN, 700));
+  assert.equal(chained.kind, 'chain');
+  assert.equal(chained.recordings, 12);
+  assert.equal(chained.results, 3400);
+  assert.equal(chained.sameAsBefore, 700);
+});
+
+test('a product chain that repeats the last result too often fails, though chi-square passes', () => {
+  // 24% repeats on a D6 with even counts: the bias a throw alone left, which chi-square cannot see.
+  const run = replacing(completeRun(), isPlannedChain(PRODUCT_D6_CHAIN), chain(PRODUCT_D6_CHAIN, 816));
+  const failures = checkRuns(run);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /^chain D6 ×1 spin=0\.1 seed 1: 24\.00% on the previous face, p = .* below 0\.001$/);
+});
+
+test('a product chain whose results are unfair fails', () => {
+  const loaded = `[chain] die=D6 dice=1 kick=${PRODUCT_KICK} seed=1 recordings=12 counts=800,520,520,520,520,520 ${shakenTail('D6', 3400, 3400, 567, {}).replace(/^counts=\S+ /, '')}`;
+  const failures = checkRuns(replacing(completeRun(), isPlannedChain(PRODUCT_D6_CHAIN), loaded));
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /^chain D6 ×1 spin=0\.1 seed 1: chi-square p = .* below 0\.001$/);
+});
+
+test('a throw chain that repeats far above chance is reported, not failed', () => {
+  const throwChain = CHAINS.find((c) => c.kick === 'throw');
+  assert.deepEqual(checkRuns(replacing(completeRun(), isPlannedChain(throwChain), chain(throwChain, 900))), []);
+});
+
+test('product replays pooled over their takes fail when they keep the previous face', () => {
+  const planned = REPLAYS.filter((r) => r.kick === PRODUCT_KICK && r.die === 'D6' && r.cut === 0);
+  let run = completeRun();
+  // 20% on every take: 1800 of 9000 pooled, about 8.5 standard errors over chance.
+  for (const take of planned) {
+    run = replacing(run, (e) => e.kind === 'replay' && e.die === take.die && e.kick === take.kick && e.file === take.file && e.extraS === take.cut, replay(take, 300));
+  }
+  const failures = checkRuns(run);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /^D6 spin=0\.1 gentle cut 0 s: 20\.00% on the previous face, p = .* below 0\.001$/);
+});
+
+test('a shake never detected, a roll never settled and a missing replay or chain are each named', () => {
+  const take = REPLAYS[0];
+  const isTake = (e) => e.kind === 'replay' && e.die === take.die && e.kick === take.kick && e.file === take.file && e.extraS === take.cut;
+  const label = `${take.die} ${take.kick} cut ${take.cut} s ${take.file.split('/').at(-1)}`;
+  assert.deepEqual(checkRuns(replacing(completeRun(), isTake, replay(take, undefined, { undetected: 2 }))), [`${label}: 2 shakes never detected`]);
+  assert.deepEqual(checkRuns(replacing(completeRun(), isTake, replay(take, undefined, { unsettled: 1 }))), [`${label}: 1 rolls never came to rest`]);
+  assert.deepEqual(checkRuns(completeRun().filter((e) => !isTake(e))), [`no replay of ${REPLAY_TRIALS} rolls for ${label}`]);
+  assert.deepEqual(checkRuns(completeRun().filter((e) => !isPlannedChain(PRODUCT_D6_CHAIN)(e))), ['no chain of 3400 rolls for chain D6 ×1 spin=0.1 seed 1']);
+});
+
+test('replays pool per die, gesture, kick and cut, keeping the worst take', () => {
+  const planned = REPLAYS.filter((r) => r.kick === 'none' && r.die === 'D6' && r.cut === 0 && r.file.includes('gentle'));
+  const lines = planned.map((take, i) => replay(take, i === 0 ? 1350 : 1200));
+  const [pool] = poolReplays(lines.map(parseProbeLine));
+  assert.equal(pool.takes, 6);
+  assert.equal(pool.gesture, 'gentle');
+  assert.equal(pool.results, 9000);
+  assert.equal(pool.repeatShare, 7350 / 9000);
+  assert.equal(pool.worstTakeShare, 0.9);
+  const markdown = shakeMarkdown(poolReplays(lines.map(parseProbeLine)), [summarizeChain(parseProbeLine(chain(PRODUCT_D6_CHAIN, 567)))]);
+  assert.match(markdown, /\| D6 \| gentle \| none \| 81\.67% \(90\.00%\), 0\.000 \|/);
+  assert.match(markdown, /\| D6 \| 1 \| spin=0\.1 \| 1 \| 3400 \| [\d.]+ \| [\d.]+ \| 16\.68% \(16\.67%\) \| 0\.988 \| 3 of 3400 \|/);
+});
+
+test('each take of a pooled replay rolls from its own seed', () => {
+  const pooled = REPLAYS.filter((r) => r.kick === PRODUCT_KICK && r.die === 'D6' && r.cut === 0);
+  assert.equal(new Set(pooled.map((r) => r.seed)).size, pooled.length);
+  const run = completeRun();
+  const take = pooled[1];
+  const isTake = (e) => e.kind === 'replay' && e.die === take.die && e.kick === take.kick && e.file === take.file && e.extraS === take.cut;
+  // The same take on the first take's seed is not the run that was planned.
+  const onFirstSeed = run.map((e) => (isTake(e) ? { ...e, seed: pooled[0].seed } : e));
+  assert.equal(checkRuns(onFirstSeed).length, 1);
+  assert.equal(ALL_TAKES.indexOf(take.file), take.seed - 1);
+});
+
+test('the first failed run stops new runs from starting', async () => {
+  const started = [];
+  const run = async (args) => {
+    started.push(args);
+    if (args === 'bad') throw new Error('crashed');
+    return [args];
+  };
+  // Two at once: the run already started beside the failure finishes, and nothing after it starts.
+  await assert.rejects(runAll(['bad', 'a', 'b', 'c', 'd'], 2, run), /crashed/);
+  assert.deepEqual(started, ['bad', 'a']);
+  assert.deepEqual(await runAll(['a', 'b', 'c'], 2, run), ['a', 'b', 'c']);
 });

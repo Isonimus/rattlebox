@@ -86,6 +86,12 @@ private:
 
 } // namespace
 
+bool continuesRecording(uint32_t previousUs, uint32_t nextUs) {
+    const uint32_t gapUs = nextUs - previousUs;
+    // A longer gap would leave the detector judging a window with nothing in it.
+    return gapUs > 0 && gapUs < SHAKE_WINDOW_US;
+}
+
 ShakeRecording loadRecording(const char* path) {
     FILE* file = fopen(path, "r");
     if (file == nullptr) malformed(path, 0, "cannot open");
@@ -103,8 +109,8 @@ ShakeRecording loadRecording(const char* path) {
             malformed(path, lineNumber, "expected t_us,ax,ay,az first");
         }
         sample.timestampUs = static_cast<uint32_t>(timestampUs);
-        if (!recording.samples.empty() && sample.timestampUs - recording.samples.back().timestampUs == 0) {
-            malformed(path, lineNumber, "timestamp does not advance");
+        if (!recording.samples.empty() && !continuesRecording(recording.samples.back().timestampUs, sample.timestampUs)) {
+            malformed(path, lineNumber, "timestamp does not advance by less than the detector's window");
         }
         recording.samples.push_back(sample);
         sum = sum + sample.accelG;
@@ -184,4 +190,54 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
         }
         if (step - detectionStep >= limitSteps) return outcome;
     }
+}
+
+void addShakenRoll(ShakenTally& tally, const ShakenOutcome& outcome) {
+    tally.rolls++;
+    tally.deepestOutsideMm = fmaxf(tally.deepestOutsideMm, outcome.deepestOutsideMm);
+    tally.fastestMmPerS = fmaxf(tally.fastestMmPerS, outcome.fastestMmPerS);
+    if (outcome.detections == 0) {
+        tally.undetected++;
+        return;
+    }
+    if (outcome.detections > 1) tally.redetected++;
+    const RollOutcome& roll = outcome.roll;
+    tally.nudges += roll.nudges;
+    tally.totalS += roll.seconds;
+    tally.longestS = fmaxf(tally.longestS, roll.seconds);
+    if (!roll.settled) {
+        tally.unsettled++;
+        return;
+    }
+    for (uint8_t die = 0; die < roll.dieCount; die++) {
+        const uint8_t numeral = roll.results[die].numeral;
+        tally.counts[numeral]++;
+        tally.results++;
+        if (numeral == outcome.startNumerals[die]) tally.sameAsBefore++;
+        if (numeral != roll.shownNumerals[die]) tally.knockedOver++;
+    }
+}
+
+bool restingWorld(World& world, const DieShape& shape, uint8_t dice, UniformSource& source,
+                  const RestThresholds& thresholds, float timeLimitS) {
+    world = World{};
+    world.shape = &shape;
+    return simulateRollIn(world, dice, source, thresholds, timeLimitS, nullptr).settled;
+}
+
+float durationS(const ShakeRecording& recording) {
+    return (recording.samples.back().timestampUs - recording.samples.front().timestampUs) / static_cast<float>(US_PER_S);
+}
+
+ShakenTally chainRolls(World& world, const std::vector<ShakeRecording>& recordings, unsigned long rolls, KickPlan kick,
+                       UniformSource& source, const RestThresholds& thresholds, float timeLimitS) {
+    ShakenTally tally{};
+    for (unsigned long roll = 0; roll < rolls; roll++) {
+        // One draw per statement, so the same seed picks the same way on every compiler.
+        const size_t pick = static_cast<size_t>(source.nextUnit() * recordings.size());
+        const ShakeRecording& recording = recordings[pick];
+        const float extraS = source.nextUnit() * durationS(recording);
+        addShakenRoll(tally, simulateShakenRoll(world, recording, extraS, kick, source, thresholds, timeLimitS));
+    }
+    return tally;
 }

@@ -14,12 +14,14 @@ other, hold it still and they settle. The face each die rests on is its result.
 - **Boards**: M5Stack Cardputer ADV and M5StickC Plus 2 (ADR-0001), built in both envs from
   the first slice. The StickC is the slower SoC with the smaller heap, so it sets the
   performance budget.
-- **Fairness**: results come from the simulated physics, the launch is randomized from the
-  hardware RNG, and each die type's fairness is measured on the host before it ships
-  (ADR-0002). A result locks when its die first comes to rest lying flat; a die that comes to
-  rest propped on a wall or another die gets a random nudge until it lies flat (ADR-0009).
-- **One engine, two inputs**: a shake is an impulse and a tilt is the gravity vector. Shaking
-  without tilting is the same tray with no sideways gravity.
+- **Fairness**: results come from the simulated physics, and each die type's fairness is
+  measured on the host before it ships (ADR-0002). A result locks when its die first comes to
+  rest lying flat; a die that comes to rest propped on a wall or another die gets a random nudge
+  until it lies flat (ADR-0009). Each detected shake throws every die and spins it to an
+  orientation drawn from the hardware RNG, because a shake alone leaves a die near the face it
+  showed before (ADR-0010).
+- **One input**: the device's own motion, read by the accelerometer, is the tray's gravity, so a
+  shake rattles the dice and a tilt slides them (ADR-0010).
 
 ## M0: probes
 

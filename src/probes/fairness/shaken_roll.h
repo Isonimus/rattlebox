@@ -16,6 +16,13 @@ struct ShakeRecording {
     uint32_t periodUs;
 };
 
+/**
+ * @brief Whether a sample at @p nextUs can follow one at @p previousUs in one continuous recording:
+ * later, by less than the shake detector's window. The difference is unsigned, so a clock that
+ * wraps passes and one that steps back reads as a gap of about 71 minutes and fails.
+ */
+bool continuesRecording(uint32_t previousUs, uint32_t nextUs);
+
 /** @brief Read the probe's CSV (t_us,ax,ay,az,gx,gy,gz,...); exits with a message on any malformed line. */
 ShakeRecording loadRecording(const char* path);
 
@@ -58,5 +65,45 @@ struct ShakenOutcome {
  */
 ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, float extraS, KickPlan kick,
                                  UniformSource& source, const RestThresholds& thresholds, float timeLimitS);
+
+/** @brief Shaken rolls added up: the results, and what went wrong on the way to them. */
+struct ShakenTally {
+    unsigned long counts[DIE_MAX_FACES + 1];
+    unsigned long results;
+    /**
+     * @brief Results on the face their die showed before the shake: 1 in faces from a fair roll.
+     * The face shown, not the last locked result: the bias this counts is the die staying near
+     * where it lies. The two differ only for a die knocked over after locking, 0.18% of D20
+     * results at most and none with one die (ADR-0010).
+     */
+    unsigned long sameAsBefore;
+    unsigned long undetected;
+    unsigned long redetected;
+    unsigned long unsettled;
+    unsigned long nudges;
+    /** @brief Locked results whose die was knocked onto another face before the roll ended. */
+    unsigned long knockedOver;
+    float         deepestOutsideMm;
+    float         fastestMmPerS;
+    double        totalS;
+    float         longestS;
+    unsigned long rolls;
+};
+
+void addShakenRoll(ShakenTally& tally, const ShakenOutcome& outcome);
+
+/** @brief Set @p world to @p dice dice of @p shape resting where a left-alone roll leaves them; false if it never settled. */
+bool restingWorld(World& world, const DieShape& shape, uint8_t dice, UniformSource& source,
+                  const RestThresholds& thresholds, float timeLimitS);
+
+float durationS(const ShakeRecording& recording);
+
+/**
+ * @brief Roll the dice in @p world @p rolls times one after another, as the device does: each roll
+ * starts where the last one left the dice, on a random one of @p recordings cut at a random time
+ * after its detection.
+ */
+ShakenTally chainRolls(World& world, const std::vector<ShakeRecording>& recordings, unsigned long rolls, KickPlan kick,
+                       UniformSource& source, const RestThresholds& thresholds, float timeLimitS);
 
 #endif // SHAKEN_ROLL_H
