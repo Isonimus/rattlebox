@@ -73,7 +73,7 @@ board is captured from shake to locked result.
 
 ## Not planned
 
-- Textured numerals on die faces. A D20 face is about 12 px across on these screens, too
+- Textured numerals on die faces. A D20 has a 24 px edge on these screens (ADR-0007), too
   small for legible texture.
 - Full rigid-body physics between dice. Spheres are enough for the die-to-die case
   (ADR-0002).

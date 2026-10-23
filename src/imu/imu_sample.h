@@ -2,12 +2,7 @@
 #define IMU_SAMPLE_H
 
 #include <stdint.h>
-
-struct Vec3 {
-    float x;
-    float y;
-    float z;
-};
+#include "../geometry/vec3.h"
 
 /**
  * @brief One IMU reading on the device frame of ADR-0001: x to the screen's right,

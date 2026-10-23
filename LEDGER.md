@@ -26,6 +26,8 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 - [feature] The shake detector (busy share over 0.23 of the last 1 s, at 0.5 g off 1 g) is specified but not built; the roll slice builds it (ADR-0005)
 - [audit] The shake detector's margin (0.07 each side) rests on 3 takes per gesture from one operator; re-run `scripts/imu-probe.mjs` with other people's shakes and handling before relying on it in a release (ADR-0005)
 - [audit] One of 40 Cardputer product boots at ADR-0005's settings, after the `delayAtLeastMs` fix, showed no `[boot] imu OK` line within 5 s on 2026-10-23; its log was not kept, so an IMU failure and a monitor that missed the line after USB re-enumeration are both open (ADR-0005)
+- [feature] The product's frame loop is not built: two canvases with the DMA push overlapping the next frame's drawing, paced to 60 fps; the roll slice builds it and checks whether an unsynchronised push tears (ADR-0007)
+- [audit] With the second canvas, the StickC's largest free DMA block falls from 110,580 to about 45,000 bytes, measured with only the display up; the heap with audio, physics and the IMU running beside both canvases is unmeasured (ADR-0007)
 - [deferred] On-device checks (`*-verify.mjs` device halves) need a board on the port and no hardware-in-the-loop runner exists, so CI runs only their parsing tests (ADR-0003)
 
 ## Resolved
