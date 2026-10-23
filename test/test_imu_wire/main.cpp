@@ -2,8 +2,8 @@
 #include "../../src/imu/imu_decode.h"
 #include "../../src/imu/imu_decode.cpp"
 #include "../../src/imu/axis_map.cpp"
-#include "../../src/probes/imu_wire.h"
-#include "../../src/probes/imu_wire.cpp"
+#include "../../src/probes/imu/imu_wire.h"
+#include "../../src/probes/imu/imu_wire.cpp"
 
 // The round trip runs through the real decoder and remap, so the test covers the values
 // the probe will actually pack, not ones a test happened to pick.

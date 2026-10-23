@@ -4,8 +4,8 @@
 #include <esp_heap_caps.h>
 #include <stdlib.h>
 
-#include "../boot/boot_steps.h"
-#include "../hal/hal.h"
+#include "../../boot/boot_steps.h"
+#include "../../hal/hal.h"
 #include "imu_wire.h"
 
 // The IMU probe firmware (slice 0004): on each `R` from the host, record one window of IMU

@@ -2,8 +2,8 @@
 #define IMU_WIRE_H
 
 #include <stdint.h>
-#include "../imu/imu_decode.h"
-#include "../imu/imu_sample.h"
+#include "../../imu/imu_decode.h"
+#include "../../imu/imu_sample.h"
 
 /**
  * @brief One recorded sample as the IMU probe sends it (slice 0004): the timestamp in µs
