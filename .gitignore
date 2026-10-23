@@ -1,5 +1,7 @@
 # === PlatformIO ===
 .pio/
+# The project's own PlatformIO core (platformio.ini, core_dir)
+.platformio/
 
 # === IDE / Editor ===
 .vscode/
