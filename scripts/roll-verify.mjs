@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Device check for the dice roll (slice 0011).
+// Device check for the dice roll (slice 0011), with the IMU's sample rate added in slice 0012.
 //
 // Resets a board running the product through scripts/serial_reset_monitor.py, checks its boot,
 // then rolls three D6 and three D20 through the product's one-byte serial commands. Fails on any
-// boot failure, error line or panic, a roll that never locks, or results that fail chi-square: a
-// coarse check that would catch a miscompile like host GCC 13.3's, which turned every launch to
-// the same face (ADR-0009). Takes a screen capture after the last roll of each type, for a person
-// to compare each die's face up with the results band. Writes artifacts/roll-verify/<env>/:
+// boot failure, error line or panic, a roll that never locks, a roll whose IMU samples came in
+// under the chip's rate, or results that fail chi-square. Chi-square is a coarse check that would
+// catch a miscompile like host GCC 13.3's, which turned every launch to the same face (ADR-0009).
+// Takes a screen capture after the last roll of each type, for a person to compare each die's face
+// up with the results band. Writes artifacts/roll-verify/<env>/:
 // summary.json, summary.md and the captures.
 //
 // Usage: npm run verify:roll -- --env cardputer --port /dev/ttyACM0
@@ -32,10 +33,20 @@ export const ROLLS = { D6: 40, D20: 60 };
 // The product's choice at boot (src/roll/dice_choice.h).
 export const BOOT_CHOICE = { type: 'D20', count: 1 };
 const MAX_DICE = 3;
+// The product's IMU rate (src/main.cpp, ADR-0005). The chips' clocks were measured up to 1.1% off
+// it, so samples coming in under 98% of it were lost between the loop's reads. The rate is pooled
+// over a run's rolls: a sample's timestamp is its read time, late by up to a few milliseconds, which
+// moved one 0.6 s roll's own rate by about 1% on the Cardputer, whose chip runs 1.1% slow (slice 0012).
+export const IMU_RATE_HZ = 100;
+export const MIN_IMU_RATE_SHARE = 0.98;
+const US_PER_S = 1e6;
 
 const LAUNCH = /^\[roll\] launch (D\d+) x(\d)$/;
-const LOCKED = /^\[roll\] locked (D\d+) x(\d) results=([\d,]+) shown=([\d,]+) seconds=(\d+\.\d+) nudges=(\d+)$/;
-const FRAME = /^\[frame\] frames=(\d+) work_mean_us=(\d+) work_max_us=(\d+) physics_max_us=(\d+) late=(\d+)$/;
+const SHAKE = /^\[roll\] shake (D\d+) x(\d) level_tilt_deg=(\d+\.\d|none)$/;
+const LOCKED =
+  /^\[roll\] locked (D\d+) x(\d) results=([\d,]+) shown=([\d,]+) seconds=(\d+\.\d+) nudges=(\d+) detections=(\d+)$/;
+const FRAME =
+  /^\[frame\] frames=(\d+) work_mean_us=(\d+) work_max_us=(\d+) physics_max_us=(\d+) late=(\d+) imu_samples=(\d+) imu_span_us=(\d+) imu_gap_max_us=(\d+)$/;
 
 const numerals = (field) => field.split(',').map(Number);
 
@@ -43,17 +54,46 @@ const numerals = (field) => field.split(',').map(Number);
 export function parseRollLine(line) {
   let match;
   if ((match = LAUNCH.exec(line))) return { kind: 'launch', type: match[1], count: Number(match[2]) };
+  if ((match = SHAKE.exec(line))) {
+    // "none" until the device has been held still once since boot: the tray is then level.
+    const levelTiltDeg = match[3] === 'none' ? null : Number(match[3]);
+    return { kind: 'shake', type: match[1], count: Number(match[2]), levelTiltDeg };
+  }
   if ((match = LOCKED.exec(line))) {
     const [results, shown] = [numerals(match[3]), numerals(match[4])];
     const count = Number(match[2]);
     if (results.length !== count || shown.length !== count) throw new Error(`roll of ${count} dice with other numerals: ${line}`);
-    return { kind: 'locked', type: match[1], count, results, shown, seconds: Number(match[5]), nudges: Number(match[6]) };
+    const [seconds, nudges, detections] = match.slice(5).map(Number);
+    return { kind: 'locked', type: match[1], count, results, shown, seconds, nudges, detections };
   }
   if ((match = FRAME.exec(line))) {
-    const [frames, workMeanUs, workMaxUs, physicsMaxUs, late] = match.slice(1).map(Number);
-    return { kind: 'frame', frames, workMeanUs, workMaxUs, physicsMaxUs, late };
+    const [frames, workMeanUs, workMaxUs, physicsMaxUs, late, imuSamples, imuSpanUs, imuGapMaxUs] = match.slice(1).map(Number);
+    return { kind: 'frame', frames, workMeanUs, workMaxUs, physicsMaxUs, late, imuSamples, imuSpanUs, imuGapMaxUs };
   }
   return parseLine(line);
+}
+
+/** The IMU's sample rate over one roll, from its samples' timestamps; null with fewer than two samples. */
+export function imuRateHz(frame) {
+  if (frame.imuSamples < 2 || frame.imuSpanUs === 0) return null;
+  return ((frame.imuSamples - 1) * US_PER_S) / frame.imuSpanUs;
+}
+
+/** The IMU's rate over many rolls, from their samples and spans together; null if any roll had fewer than two samples. */
+export function pooledImuRateHz(frames) {
+  if (frames.some((frame) => imuRateHz(frame) === null)) return null;
+  const intervals = frames.reduce((sum, frame) => sum + frame.imuSamples - 1, 0);
+  const spanUs = frames.reduce((sum, frame) => sum + frame.imuSpanUs, 0);
+  return (intervals * US_PER_S) / spanUs;
+}
+
+/** A failure for an IMU rate slower than the chip's clock error allows, or for no rate at all. */
+export function checkImuRate(label, rate) {
+  if (rate === null) return [`${label}: fewer than two IMU samples`];
+  if (rate < IMU_RATE_HZ * MIN_IMU_RATE_SHARE) {
+    return [`${label}: IMU samples at ${rate.toFixed(1)} Hz, under ${MIN_IMU_RATE_SHARE * 100}% of ${IMU_RATE_HZ} Hz`];
+  }
+  return [];
 }
 
 /** The bytes that take the product from one choice to another: 'T' toggles the type, 'C' cycles the count. */
@@ -93,10 +133,14 @@ export function summarizeType(type, rolls) {
     workMaxUs: Math.max(...rolls.map(({ frame }) => frame.workMaxUs)),
     physicsMaxUs: Math.max(...rolls.map(({ frame }) => frame.physicsMaxUs)),
     lateFrames: rolls.reduce((sum, { frame }) => sum + frame.late, 0),
+    imuRateHz: pooledImuRateHz(rolls.map(({ frame }) => frame)),
+    // For reading only: one roll's rate carries its first and last reads' delays (see MIN_IMU_RATE_SHARE).
+    imuRateMinHz: rolls.some(({ frame }) => imuRateHz(frame) === null) ? null : Math.min(...rolls.map(({ frame }) => imuRateHz(frame))),
+    imuGapMaxUs: Math.max(...rolls.map(({ frame }) => frame.imuGapMaxUs)),
   };
 }
 
-/** Every failure: a failed boot, an error line, a type short of its rolls, or results that fail chi-square. */
+/** Every failure: a failed boot, an error line, a type short of its rolls, a roll that lost IMU samples, or results that fail chi-square. */
 export function checkRun(parsed, types) {
   const failures = [...checkBoot(parsed).failures, ...checkNoErrors(parsed).failures];
   if (!parsed.some((entry) => entry.kind === 'boot-ok' && entry.subsystem === 'rng')) failures.push('boot: no "[boot] rng OK" line');
@@ -106,6 +150,7 @@ export function checkRun(parsed, types) {
       failures.push(`${type}: ${summary?.rolls ?? 0} of ${expected} rolls locked`);
       continue;
     }
+    failures.push(...checkImuRate(type, summary.imuRateHz));
     if (!(summary.pValue >= ALPHA)) {
       failures.push(`${type}: chi-square ${summary.chiSquare.toFixed(2)}, p ${summary.pValue.toFixed(4)} is under ${ALPHA}`);
     }
@@ -126,9 +171,13 @@ export function summaryMarkdown(env, types) {
     lines.push(`| ${t.type} | ${t.rolls} | ${t.results} | ${t.chiSquare.toFixed(2)} | ${t.pValue.toFixed(3)} | ${t.knockedOver} | ${t.meanSeconds.toFixed(2)} / ${t.longestSeconds.toFixed(2)} | ${t.nudges} |`);
   }
   lines.push('', 'Frame costs while rolling, in microseconds; a frame has 16,667.', '');
-  lines.push('| Die | Frames | Work, mean | Work, longest | Four physics steps, longest | Late frames |', '|---|---|---|---|---|---|');
+  lines.push(
+    '| Die | Frames | Work, mean | Work, longest | Four physics steps, longest | Late frames | IMU Hz, all rolls | IMU Hz, slowest roll | Longest IMU gap |',
+    '|---|---|---|---|---|---|---|---|---|',
+  );
   for (const t of types) {
-    lines.push(`| ${t.type} | ${t.frames} | ${t.workMeanUs} | ${t.workMaxUs} | ${t.physicsMaxUs} | ${t.lateFrames} |`);
+    const [pooled, slowest] = [t.imuRateHz, t.imuRateMinHz].map((rate) => (rate === null ? 'none' : rate.toFixed(1)));
+    lines.push(`| ${t.type} | ${t.frames} | ${t.workMeanUs} | ${t.workMaxUs} | ${t.physicsMaxUs} | ${t.lateFrames} | ${pooled} | ${slowest} | ${t.imuGapMaxUs} |`);
   }
   return `${lines.join('\n')}\n`;
 }
@@ -205,15 +254,15 @@ export function parseArgs(argv) {
 
 // ---------------------------------------------------------------- process handling
 
-const BOOT_TIMEOUT_MS = 15000;
+export const BOOT_TIMEOUT_MS = 15000;
 // The firmware reports a roll that has not locked after 20 s of physics (src/main.cpp); at 60 fps
 // that is 20 s of wall time, so this leaves room only for slow frames, not for a hung board.
-const ROLL_TIMEOUT_MS = 30000;
+export const ROLL_TIMEOUT_MS = 30000;
 // The monitor needs a moment after the port opens before a byte it forwards reaches the board.
-const ATTACH_SETTLE_MS = 500;
+export const ATTACH_SETTLE_MS = 500;
 
 /** One serial session: a monitor process whose lines feed `waiters`, and a way to send the board bytes. */
-class Session {
+export class Session {
   constructor(port, { reset }) {
     this.waiters = new LineWaiters();
     this.closing = false;
@@ -248,7 +297,7 @@ class Session {
   }
 }
 
-function capture(port, outDir) {
+export function capture(port, outDir) {
   mkdirSync(outDir, { recursive: true });
   const result = spawnSync('python3', ['scripts/capture_screen.py', '--port', port, '--out', outDir], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`screen capture: ${result.stderr.trim()}`);

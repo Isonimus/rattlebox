@@ -99,6 +99,15 @@ void test_the_timestamp_wrapping_round_does_not_end_a_shake() {
     TEST_ASSERT_TRUE(detector.shaking());
 }
 
+void test_a_gap_in_the_samples_is_not_a_shake() {
+    // The loop stops reading the IMU for seconds while it streams a screen capture. One busy
+    // reading after it, the board picked up, is not a busy share of a whole second.
+    ShakeDetector detector;
+    const uint32_t next = feed(detector, 0, PERIOD_100HZ_US, 2 * SAMPLES_PER_SECOND_100HZ, STILL);
+    feed(detector, next + 5 * SHAKE_WINDOW_US, PERIOD_100HZ_US, 3, HARD_PUSH);
+    TEST_ASSERT_FALSE(detector.shaking());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_a_still_device_is_not_shaking);
@@ -109,5 +118,6 @@ int main() {
     RUN_TEST(test_the_window_is_one_second_of_timestamps_not_a_count_of_samples);
     RUN_TEST(test_a_shake_ends_once_the_last_second_is_quiet);
     RUN_TEST(test_the_timestamp_wrapping_round_does_not_end_a_shake);
+    RUN_TEST(test_a_gap_in_the_samples_is_not_a_shake);
     return UNITY_END();
 }

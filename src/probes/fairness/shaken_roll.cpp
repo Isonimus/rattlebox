@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../../imu/shake_detector.h"
-#include "../../physics/tray_gravity.h"
 
 namespace {
 
@@ -118,9 +117,31 @@ ShakeRecording loadRecording(const char* path) {
     return recording;
 }
 
+namespace {
+
+/**
+ * @brief The device held still at @p recording's level angle for SHAKE_WINDOW_US before the shake:
+ * on the device, the detector's window and the still span come into a shake holding the hold
+ * before it. The dice rest through it, so it is fed without stepping the world, which would only
+ * cost time.
+ */
+void holdBefore(const ShakeRecording& recording, ShakeRoll& shakeRoll, World& world, DieResult* results,
+                UniformSource& source) {
+    const Vec3 heldStill = normalized(recording.levelAccelG);
+    const uint32_t firstUs = recording.samples.front().timestampUs;
+    for (uint32_t samplesBefore = SHAKE_WINDOW_US / recording.periodUs; samplesBefore > 0; samplesBefore--) {
+        ImuSample sample{};
+        sample.timestampUs = firstUs - samplesBefore * recording.periodUs;
+        sample.accelG = heldStill;
+        // A detection here would be a shake read in a still device.
+        if (shakeRoll.addSample(sample, world, results, source)) abort();
+    }
+}
+
+} // namespace
+
 ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, float extraS, KickPlan kick,
                                  UniformSource& source, const RestThresholds& thresholds, float timeLimitS) {
-    const Quaternion level = levelFrom(recording.levelAccelG);
     const double stepUs = PHYSICS_STEP_S * US_PER_S;
     const uint32_t startUs = recording.samples.front().timestampUs;
     const uint32_t limitSteps = stepsIn(timeLimitS);
@@ -136,49 +157,33 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
     }
     outcome.deepestOutsideMm = deepestOutside(world, PRODUCT_TRAY);
 
-    ShakeDetector detector;
+    ShakeRoll shakeRoll(kick);
+    holdBefore(recording, shakeRoll, world, roll.results, source);
     ReplayInput input(recording, extraS);
-    bool shaking = false;
     uint32_t detectionStep = 0;
-    Reorientation turns[MAX_DICE] = {};
     for (uint32_t step = 0;; step++) {
         const uint32_t nowUs = startUs + static_cast<uint32_t>(llround(step * stepUs));
         // Each sample holds until the next is due, as the device's latest reading would.
         while (input.nextTimestampUs() - startUs <= nowUs - startUs) {
             const ImuSample sample = input.take();
-            detector.add(sample);
-            world.gravity = trayGravity(level, sample.accelG);
-            const bool wasShaking = shaking;
-            shaking = detector.shaking();
-            if (!shaking || wasShaking) continue;
+            if (!shakeRoll.addSample(sample, world, roll.results, source)) continue;
             if (outcome.detections == 0) detectionStep = step;
             outcome.detections++;
             input.detectedAt(sample.timestampUs);
-            for (uint8_t die = 0; die < world.dieCount; die++) {
-                roll.launchNumerals[die] = shownNumeral(world, die);
-                roll.results[die] = startRoll();
-                if (kick.kind == ShakeKick::Reorient) world.dice[die].orientation = uniformOrientation(source);
-                if (kick.kind != ShakeKick::None) throwDie(world.dice[die], source);
-                if (kick.kind == ShakeKick::Spin) turns[die] = startReorientation(world.dice[die], kick.spinS, source);
-            }
         }
 
-        for (uint8_t die = 0; die < world.dieCount; die++) continueReorientation(turns[die], world.dice[die]);
-        stepWorld(world, PRODUCT_TRAY);
+        roll.nudges += shakeRoll.step(world, roll.results, source, thresholds);
         outcome.deepestOutsideMm = fmaxf(outcome.deepestOutsideMm, deepestOutside(world, PRODUCT_TRAY));
         for (uint8_t die = 0; die < world.dieCount; die++) {
             outcome.fastestMmPerS = fmaxf(outcome.fastestMmPerS, length(world.dice[die].velocity));
         }
-        // A roll's dice do not lock while the shake goes on: a die resting a moment in the middle
-        // of one is not a result.
-        if (!shaking) roll.nudges += advanceResults(world, roll.results, source, thresholds);
 
         if (outcome.detections == 0) {
             if (input.held()) return outcome;
             continue;
         }
         roll.seconds = (step - detectionStep) * PHYSICS_STEP_S;
-        if (input.held() && !shaking && everyDieLocked(roll.results, world.dieCount)) {
+        if (input.held() && !shakeRoll.shaking() && everyDieLocked(roll.results, world.dieCount)) {
             roll.settled = true;
             for (uint8_t die = 0; die < world.dieCount; die++) roll.shownNumerals[die] = shownNumeral(world, die);
             return outcome;

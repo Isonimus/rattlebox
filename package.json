@@ -8,6 +8,7 @@
     "test": "node --test 'scripts/*.test.mjs' && python3 -m unittest discover -s scripts && pio test -e native",
     "test:fairness": "pio test -e native-fairness",
     "verify:skeleton": "node scripts/skeleton-verify.mjs",
-    "verify:roll": "node scripts/roll-verify.mjs"
+    "verify:roll": "node scripts/roll-verify.mjs",
+    "verify:shake": "node scripts/shake-verify.mjs"
   }
 }

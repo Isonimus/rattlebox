@@ -9,6 +9,8 @@
 #include "../../src/geometry/rotation.cpp"
 #include "../../src/imu/shake_detector.h"
 #include "../../src/imu/shake_detector.cpp"
+#include "../../src/imu/still_span.h"
+#include "../../src/imu/still_span.cpp"
 #include "../../src/physics/die_result.h"
 #include "../../src/physics/die_result.cpp"
 #include "../../src/physics/launch.h"
@@ -26,13 +28,16 @@
 #include "../../src/probes/fairness/simulated_roll.cpp"
 #include "../../src/roll/dice_roll.h"
 #include "../../src/roll/dice_roll.cpp"
+#include "../../src/roll/shake_roll.h"
+#include "../../src/roll/shake_roll.cpp"
 
 // Invariant #2 (ADR-0002, ADR-0009, ADR-0010): a die type ships only with a passing fairness test
 // over rolls through the real physics, rolled as the device rolls them: one after another, each
-// starting where the last one left the dice, moved by the IMU probe's recorded shakes. Two checks
-// at α = 0.001: chi-square goodness of fit of the results, and the share of results on the face
-// the die showed before, against 1 in faces. Chi-square cannot see the second: a throw alone
-// passed it while a D6 came back on its previous face 24-28% of the time.
+// starting where the last one left the dice, moved by the IMU probe's recorded shakes through the
+// device's own ShakeRoll, each shake after 1 s held still (slice 0012). Two checks at α = 0.001:
+// chi-square goodness of fit of the results, and the share of results on the face the die showed
+// before, against 1 in faces. Chi-square cannot see the second: a throw alone passed it while a D6
+// came back on its previous face 24-28% of the time.
 //
 // Sized in slice 0008 to catch one face 1.25× too likely with 99% power: 18,000 D20 results and
 // 3,400 D6 results. The seed is fixed, so the test cannot flake. One die at a time runs in
@@ -49,7 +54,6 @@ static const double CRITICAL_D6 = 20.515;
 static const double CRITICAL_REPEAT_Z = 3.2905;
 // A roll still moving after this long has a die the physics never brings to rest.
 static const float TIME_LIMIT_S = 20.0f;
-static const KickPlan PRODUCT_KICK{ShakeKick::Spin, REORIENTATION_S};
 // The planted bias: a D20 whose body sits 0.25 mm (2.4% of its edge) off its centre of mass, a
 // loaded die. Under chained shakes it scored 590 against the critical 43.8; a D6 loaded as far
 // scored 11.0 and passed, and 0.5 mm only 28.8 against 20.5, too close to keep failing after a retune.

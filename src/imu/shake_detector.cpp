@@ -4,6 +4,14 @@
 #include <stdlib.h>
 
 void ShakeDetector::add(const ImuSample& sample) {
+    if (_count > 0) {
+        const uint32_t newestUs = _timestampsUs[(_oldest + _count - 1) % SHAKE_WINDOW_CAPACITY];
+        if (sample.timestampUs - newestUs >= IMU_SAMPLE_GAP_LIMIT_US) {
+            _count = 0;
+            _busyCount = 0;
+            _spansWindow = false;
+        }
+    }
     // Unsigned subtraction keeps the age right across the 71-minute wrap of a µs timestamp.
     while (_count > 0 && sample.timestampUs - _timestampsUs[_oldest] >= SHAKE_WINDOW_US) {
         if (_busy[_oldest]) _busyCount--;

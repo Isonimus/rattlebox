@@ -4,13 +4,16 @@
 #include <stdint.h>
 #include <vector>
 #include "../../imu/imu_sample.h"
-#include "../../physics/reorientation.h"
+#include "../../roll/shake_roll.h"
 #include "simulated_roll.h"
 
 /** @brief An IMU capture from the IMU probe (slice 0004), on the device frame, replayed as live input. */
 struct ShakeRecording {
     std::vector<ImuSample> samples;
-    /** @brief The mean reading: the angle the device was held at, taken as level for the replay. */
+    /**
+     * @brief The mean reading: the angle the device was held at, replayed as the hold before the
+     * shake and after it. Most takes start mid-shake, so they hold no still span of their own.
+     */
     Vec3 levelAccelG;
     /** @brief The mean time between samples, from their timestamps (invariant #4). */
     uint32_t periodUs;
@@ -26,23 +29,6 @@ bool continuesRecording(uint32_t previousUs, uint32_t nextUs);
 /** @brief Read the probe's CSV (t_us,ax,ay,az,gx,gy,gz,...); exits with a message on any malformed line. */
 ShakeRecording loadRecording(const char* path);
 
-/** @brief What lands on the dice the moment a shake is detected, from the RNG (ADR-0002). */
-enum class ShakeKick : uint8_t {
-    None,
-    /** @brief ADR-0009's throw added to each die's motion. */
-    Throw,
-    /** @brief The throw, and each die turned to a fresh uniform orientation: a visible jump. */
-    Reorient,
-    /** @brief The throw, and each die spun to a fresh uniform orientation over a set time. */
-    Spin,
-};
-
-/** @brief A kick, with the time a Spin takes. */
-struct KickPlan {
-    ShakeKick kind;
-    float     spinS;
-};
-
 struct ShakenOutcome {
     /** @brief Results, nudges and seconds as a left-alone roll reports them; seconds count from the detection. */
     RollOutcome roll;
@@ -56,10 +42,10 @@ struct ShakenOutcome {
 };
 
 /**
- * @brief Replay @p recording as the tray's gravity on dice resting in @p world, as the product
- * would: each detection starts a new roll and applies @p kick; nothing locks while the detector
- * reads a shake; @p extraS after the first detection the device is held still and level, and the
- * roll runs until every die locks or @p timeLimitS after the detection.
+ * @brief Replay @p recording through ShakeRoll on dice resting in @p world, as the device rolls
+ * them: after SHAKE_WINDOW_US held still at the recording's mean, the recording's samples, each
+ * detection kicking with @p kick; @p extraS after the first detection the device is held still at
+ * that angle again, and the roll runs until every die locks or @p timeLimitS after the detection.
  *
  * @p world keeps the dice where they end, so the next roll can start from this one.
  */

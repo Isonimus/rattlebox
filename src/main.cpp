@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
+#include <math.h>
 #include <utility>
 
 #include "app/frame_pacer.h"
@@ -16,17 +17,27 @@
 #include "render/results_band.h"
 #include "roll/dice_choice.h"
 #include "roll/dice_roll.h"
+#include "roll/shake_roll.h"
 
-// The product (slice 0011): dice launched from rest by the controls or the serial port, rolled by
-// the physics at 60 fps, and their results shown once every die locks.
+// The product: dice rolled by the device's own motion (slice 0012) or launched from rest by the
+// controls and the serial port (slice 0011), stepped by the physics at 60 fps, and their results
+// shown once every die locks.
 
 namespace {
 
 constexpr uint32_t SERIAL_BAUD = 115200;
+// A roll's report, three dice and the frame line, is about 330 bytes. Past the StickC's 128-byte
+// UART FIFO, printing blocked the loop for about 14 ms at 115200 baud and made the next frame late
+// (slice 0012); a buffer of a few reports lets the UART send them while the loop runs on.
+constexpr size_t SERIAL_TX_BUFFER_BYTES = 1024;
 constexpr uint32_t HALT_POLL_MS = 1000;
 // Measured by the IMU probe (ADR-0005): shakes reach 9.8 g, so +-8 g clips them, and a shake
 // is told from handling as well at 100 Hz as at the chips' fastest rates.
 constexpr ImuSettings PRODUCT_IMU_SETTINGS{16, 2000, 100};
+// How often the frame's waits read the IMU: a tenth of its 10 ms period, so no sample is replaced by
+// the next before it is read, and a sample's timestamp, its read time, is late by at most this.
+constexpr uint32_t IMU_POLL_US = 1000;
+constexpr float DEG_PER_RAD = 180.0f / static_cast<float>(M_PI);
 
 // Four 1/240 s steps make one 1/60 s frame (ADR-0007, ADR-0009). The physics follows frames, not
 // the clock: a slow frame slows the dice rather than skipping steps the fairness test never ran.
@@ -84,6 +95,12 @@ struct FrameCosts {
     uint32_t longestWorkUs;
     uint32_t longestPhysicsUs;
     uint32_t lateFrames;
+    // The IMU's samples over the roll, by their timestamps, so a sample lost to a long gap between
+    // reads shows as a rate under the chip's (slice 0012).
+    uint32_t imuSamples;
+    uint32_t firstImuUs;
+    uint32_t lastImuUs;
+    uint32_t longestImuGapUs;
 };
 
 HardwareHAL& hal = getHAL();
@@ -99,8 +116,11 @@ const Lighting LIGHTING{normalized(Vec3{-0.3f, 0.4f, 1.0f}), AMBIENT};
 DiceChoice choice = BOOT_CHOICE;
 World world{};
 DieResult results[MAX_DICE];
+ShakeRoll shakeRoll(PRODUCT_KICK);
 uint32_t rollSteps = 0;
 uint16_t rollNudges = 0;
+// A shake the detector reads twice is one roll kicked twice (ADR-0010); the count shows how often.
+uint8_t rollDetections = 0;
 bool rollReported = false;
 FrameCosts costs{};
 
@@ -112,14 +132,49 @@ uint16_t packed(Rgb color) { return shadeRgb565(color, 1.0f); }
 
 const DieShape& shapeOf(DieType type) { return type == DieType::D20 ? D20_SHAPE : D6_SHAPE; }
 
-void launch() {
-    world.shape = &shapeOf(choice.type);
-    launchRoll(world, results, choice.count, randomness);
+void startRollCounters() {
     rollSteps = 0;
     rollNudges = 0;
+    rollDetections = 0;
     rollReported = false;
     costs = {};
+}
+
+void launch() {
+    world.shape = &shapeOf(choice.type);
+    shakeRoll.launch(world, results, choice.count, randomness);
+    startRollCounters();
     Serial.printf("[roll] launch %s x%u\n", dieTypeName(choice.type), static_cast<unsigned>(choice.count));
+}
+
+/** @brief How far the level in force is tilted from the glass's normal, the turn's own angle. */
+float levelTiltDeg() {
+    const float w = fabsf(shakeRoll.level().w);
+    return 2 * acosf(w < 1 ? w : 1) * DEG_PER_RAD;
+}
+
+void onShake() {
+    // A roll's first detection starts its counters; a second kick from the same shake does not, so
+    // its seconds count from the first, as the fairness test counts them.
+    if (rollReported || rollDetections == 0) startRollCounters();
+    rollDetections++;
+    Serial.printf("[roll] shake %s x%u", dieTypeName(choice.type), static_cast<unsigned>(world.dieCount));
+    if (shakeRoll.hasLevel()) {
+        Serial.printf(" level_tilt_deg=%.1f\n", levelTiltDeg());
+    } else {
+        Serial.printf(" level_tilt_deg=none\n");
+    }
+}
+
+void recordImuSample(uint32_t timestampUs) {
+    if (rollReported) return;
+    if (costs.imuSamples == 0) {
+        costs.firstImuUs = timestampUs;
+    } else if (timestampUs - costs.lastImuUs > costs.longestImuGapUs) {
+        costs.longestImuGapUs = timestampUs - costs.lastImuUs;
+    }
+    costs.lastImuUs = timestampUs;
+    costs.imuSamples++;
 }
 
 void press(InputAction action) {
@@ -163,12 +218,16 @@ void reportRoll() {
     Serial.printf("[roll] locked %s x%u", dieTypeName(choice.type), static_cast<unsigned>(world.dieCount));
     printNumerals("results", locked, world.dieCount);
     printNumerals("shown", shown, world.dieCount);
-    Serial.printf(" seconds=%.3f nudges=%u\n", seconds, static_cast<unsigned>(rollNudges));
-    Serial.printf("[frame] frames=%lu work_mean_us=%lu work_max_us=%lu physics_max_us=%lu late=%lu\n",
+    Serial.printf(" seconds=%.3f nudges=%u detections=%u\n", seconds, static_cast<unsigned>(rollNudges),
+                  static_cast<unsigned>(rollDetections));
+    Serial.printf("[frame] frames=%lu work_mean_us=%lu work_max_us=%lu physics_max_us=%lu late=%lu imu_samples=%lu "
+                  "imu_span_us=%lu imu_gap_max_us=%lu\n",
                   static_cast<unsigned long>(costs.frames),
                   static_cast<unsigned long>(costs.frames == 0 ? 0 : costs.workSumUs / costs.frames),
                   static_cast<unsigned long>(costs.longestWorkUs), static_cast<unsigned long>(costs.longestPhysicsUs),
-                  static_cast<unsigned long>(costs.lateFrames));
+                  static_cast<unsigned long>(costs.lateFrames), static_cast<unsigned long>(costs.imuSamples),
+                  static_cast<unsigned long>(costs.lastImuUs - costs.firstImuUs),
+                  static_cast<unsigned long>(costs.longestImuGapUs));
     rollReported = true;
 }
 
@@ -218,22 +277,76 @@ void logStarted(const BootStep& step) {
     if (&step.part == &hal.display) displayUp = true;
 }
 
-[[noreturn]] void haltOnFailure(const BootOutcome& outcome) {
-    Serial.printf("[boot] %s FAILED: %s\n", outcome.failedStep->subsystem, outcome.failureReason);
+/** @brief Show @p subsystem's failure on the screen, if it is up, and stop for good. */
+[[noreturn]] void halt(const char* subsystem, const char* reason) {
     if (displayUp) {
         lgfx::LGFX_Device& tft = hal.display.getDevice();
+        // A push in flight would draw over the message.
+        tft.waitDMA();
         tft.fillScreen(TFT_BLACK);
         tft.setTextColor(TFT_RED, TFT_BLACK);
         tft.setCursor(TEXT_LEFT_PX, TEXT_TOP_PX);
-        tft.printf("%s FAILED\n\n%s", outcome.failedStep->subsystem, outcome.failureReason);
+        tft.printf("%s FAILED\n\n%s", subsystem, reason);
     }
-    // Nothing later may run on hardware that is only partly up.
     for (;;) delay(HALT_POLL_MS);
+}
+
+[[noreturn]] void haltOnFailure(const BootOutcome& outcome) {
+    Serial.printf("[boot] %s FAILED: %s\n", outcome.failedStep->subsystem, outcome.failureReason);
+    // Nothing later may run on hardware that is only partly up.
+    halt(outcome.failedStep->subsystem, outcome.failureReason);
+}
+
+[[noreturn]] void haltOnImuFailure(const char* reason) {
+    Serial.printf("[imu] FAILED: %s\n", reason);
+    // Every roll from here on would be moved by a reading the bus may have garbled, or by none.
+    halt("imu", reason);
+}
+
+/** @brief Read the IMU's sample if it has a new one, and roll by it. */
+void pollImu() {
+    bool available = false;
+    if (!hal.imu.hasNewSample(available)) haltOnImuFailure("bus error on the data-ready check");
+    if (!available) return;
+    ImuSample sample{};
+    if (!hal.imu.read(sample)) haltOnImuFailure("bus error on a sample read");
+    if (shakeRoll.addSample(sample, world, results, randomness)) onShake();
+    recordImuSample(sample.timestampUs);
+}
+
+/** @brief Wait @p waitUs, reading the IMU every IMU_POLL_US meanwhile; with nothing to wait, read it once. */
+void waitReadingImu(uint32_t waitUs) {
+    const uint32_t startUs = micros();
+    for (;;) {
+        pollImu();
+        const uint32_t elapsedUs = micros() - startUs;
+        if (elapsedUs >= waitUs) return;
+        const uint32_t remainingUs = waitUs - elapsedUs;
+        delayMicroseconds(remainingUs < IMU_POLL_US ? remainingUs : IMU_POLL_US);
+    }
+}
+
+/**
+ * @brief LovyanGFX's waitDMA, reading the IMU meanwhile: a push takes 13 ms of the frame's 16.7
+ * (ADR-0007). It spins rather than sleeps between reads, so the push's end is seen within one read,
+ * which took up to 1.3 ms on the StickC, not a sleep and a read.
+ */
+void waitDmaReadingImu(lgfx::LGFX_Device& tft) {
+    uint32_t lastPollUs = micros() - IMU_POLL_US;
+    while (tft.dmaBusy()) {
+        if (micros() - lastPollUs < IMU_POLL_US) continue;
+        lastPollUs = micros();
+        pollImu();
+    }
 }
 
 } // namespace
 
 void setup() {
+    // Before begin(), which allocates it. Without it, every report would stall the frame loop; the
+    // abort's backtrace is the one failure report there is before the display is up. Both boards'
+    // Serial (HardwareSerial, HWCDC) return the size asked for on success, and 0 on failure.
+    if (Serial.setTxBufferSize(SERIAL_TX_BUFFER_BYTES) != SERIAL_TX_BUFFER_BYTES) abort();
     Serial.begin(SERIAL_BAUD);
     hal.imu.configure(PRODUCT_IMU_SETTINGS);
 
@@ -263,16 +376,20 @@ void loop() {
     hal.input.update();
     press(hal.input.getAction());
 
-    const uint32_t physicsStartUs = micros();
+    // The IMU is read before each step as well as in the waits, so each step moves the dice by the
+    // latest reading, as the fairness test's replay does.
+    uint32_t physicsUs = 0;
     for (uint8_t step = 0; step < STEPS_PER_FRAME; step++) {
-        rollNudges += stepRoll(world, results, randomness, PRODUCT_REST_THRESHOLDS);
+        pollImu();
+        const uint32_t stepStartUs = micros();
+        rollNudges += shakeRoll.step(world, results, randomness, PRODUCT_REST_THRESHOLDS);
+        physicsUs += micros() - stepStartUs;
         rollSteps++;
     }
-    const uint32_t physicsUs = micros() - physicsStartUs;
 
     drawFrame(*drawing);
     lgfx::LGFX_Device& tft = hal.display.getDevice();
-    tft.waitDMA();
+    waitDmaReadingImu(tft);
     startDmaPush(tft, *drawing);
     std::swap(drawing, sending);
 
@@ -288,6 +405,6 @@ void loop() {
         if (pace.late) costs.lateFrames++;
     }
     reportRoll();
-    if (pace.waitUs > 0) delayMicroseconds(pace.waitUs);
+    waitReadingImu(pace.waitUs);
     frameDeadlineUs = pace.nextDeadlineUs;
 }

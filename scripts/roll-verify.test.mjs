@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { awaitRoll, checkRun, commandsToReach, LineWaiters, parseArgs, parseRollLine, ROLLS, summarizeType, summaryMarkdown } from './roll-verify.mjs';
+import {
+  awaitRoll,
+  checkImuRate,
+  checkRun,
+  commandsToReach,
+  imuRateHz,
+  LineWaiters,
+  pooledImuRateHz,
+  parseArgs,
+  parseRollLine,
+  ROLLS,
+  summarizeType,
+  summaryMarkdown,
+} from './roll-verify.mjs';
 
 const BOOT_LINES = [
   '[boot] power OK: HOLD latch on G4',
@@ -12,30 +25,64 @@ const BOOT_LINES = [
   '[boot] M5StickC Plus2 ready',
 ];
 
-const frame = (frames = 30) => ({ kind: 'frame', frames, workMeanUs: 4000, workMaxUs: 11000, physicsMaxUs: 3000, late: 0 });
+// 100 samples over 0.99 s: 100 Hz exactly.
+const frame = (frames = 30) => ({
+  kind: 'frame', frames, workMeanUs: 4000, workMaxUs: 11000, physicsMaxUs: 3000, late: 0, imuSamples: 100, imuSpanUs: 990000, imuGapMaxUs: 10500,
+});
 
 /** `rolls` rolls of three dice of `faces` faces, each face in turn, so the counts are as even as they can be. */
 function evenRolls(type, faces, rolls) {
   const result = [];
   for (let roll = 0; roll < rolls; roll++) {
     const results = [0, 1, 2].map((die) => ((roll * 3 + die) % faces) + 1);
-    result.push({ locked: { kind: 'locked', type, count: 3, results, shown: results, seconds: 0.5, nudges: 0 }, frame: frame() });
+    result.push({ locked: { kind: 'locked', type, count: 3, results, shown: results, seconds: 0.5, nudges: 0, detections: 0 }, frame: frame() });
   }
   return result;
 }
 
 test('the product\'s roll and frame lines parse', () => {
   assert.deepEqual(parseRollLine('[roll] launch D20 x3'), { kind: 'launch', type: 'D20', count: 3 });
-  assert.deepEqual(parseRollLine('[roll] locked D6 x3 results=2,5,6 shown=2,5,1 seconds=0.467 nudges=2'), {
-    kind: 'locked', type: 'D6', count: 3, results: [2, 5, 6], shown: [2, 5, 1], seconds: 0.467, nudges: 2,
+  assert.deepEqual(parseRollLine('[roll] shake D6 x3 level_tilt_deg=31.4'), { kind: 'shake', type: 'D6', count: 3, levelTiltDeg: 31.4 });
+  assert.deepEqual(parseRollLine('[roll] locked D6 x3 results=2,5,6 shown=2,5,1 seconds=0.467 nudges=2 detections=1'), {
+    kind: 'locked', type: 'D6', count: 3, results: [2, 5, 6], shown: [2, 5, 1], seconds: 0.467, nudges: 2, detections: 1,
   });
-  assert.deepEqual(parseRollLine('[frame] frames=28 work_mean_us=3806 work_max_us=10482 physics_max_us=3245 late=1'), {
-    kind: 'frame', frames: 28, workMeanUs: 3806, workMaxUs: 10482, physicsMaxUs: 3245, late: 1,
-  });
+  assert.deepEqual(
+    parseRollLine('[frame] frames=28 work_mean_us=3806 work_max_us=10482 physics_max_us=3245 late=1 imu_samples=47 imu_span_us=460120 imu_gap_max_us=10950'),
+    {
+      kind: 'frame', frames: 28, workMeanUs: 3806, workMaxUs: 10482, physicsMaxUs: 3245, late: 1, imuSamples: 47, imuSpanUs: 460120, imuGapMaxUs: 10950,
+    },
+  );
+});
+
+test('a shake before the device was ever held still has no level tilt', () => {
+  assert.equal(parseRollLine('[roll] shake D20 x1 level_tilt_deg=none').levelTiltDeg, null);
+});
+
+test('the IMU rate comes from the samples and their span, and needs two of them', () => {
+  assert.equal(imuRateHz(frame()), 100);
+  assert.equal(imuRateHz({ ...frame(), imuSamples: 1, imuSpanUs: 0 }), null);
+});
+
+test('the pooled IMU rate weighs each roll by its span, so one roll\'s late read barely moves it', () => {
+  // A BMI270's 98.9 Hz (ADR-0005): 60 samples in 0.6 s, and the same roll with its last read 7 ms
+  // late, which alone reads 97.8 Hz and would fail a per-roll check.
+  const onTime = { ...frame(), imuSamples: 60, imuSpanUs: 596562 };
+  const lateRead = { ...onTime, imuSpanUs: onTime.imuSpanUs + 7000 };
+  assert.ok(imuRateHz(lateRead) < 98);
+  const pooled = pooledImuRateHz([...Array(99).fill(onTime), lateRead]);
+  assert.ok(pooled > 98.8 && pooled < 98.9, `pooled ${pooled}`);
+  assert.equal(pooledImuRateHz([onTime, { ...frame(), imuSamples: 1, imuSpanUs: 0 }]), null);
+});
+
+test('an IMU rate under 98% of 100 Hz fails, and one inside the chips\' clock error passes', () => {
+  // 1.1% slow, the worst clock measured (ADR-0005), against one sample in 40 lost.
+  assert.deepEqual(checkImuRate('D6 roll 1', 98.9), []);
+  assert.match(checkImuRate('D6 roll 1', 97.5)[0], /^D6 roll 1: IMU samples at 97\.5 Hz, under 98% of 100 Hz$/);
+  assert.match(checkImuRate('D6 roll 1', null)[0], /fewer than two IMU samples/);
 });
 
 test('a locked line whose numerals do not match its die count is refused', () => {
-  assert.throws(() => parseRollLine('[roll] locked D6 x3 results=2,5 shown=2,5,6 seconds=0.4 nudges=0'), /3 dice/);
+  assert.throws(() => parseRollLine('[roll] locked D6 x3 results=2,5 shown=2,5,6 seconds=0.4 nudges=0 detections=0'), /3 dice/);
 });
 
 test('a roll that never locked is an error line', () => {
@@ -52,7 +99,7 @@ test('the commands to reach a choice toggle the type at most once and cycle the 
 test('a type\'s summary counts every result, the ones knocked over after locking, and weighs frames by roll length', () => {
   const rolls = [
     { locked: { results: [1, 2, 3], shown: [1, 2, 4], seconds: 1, nudges: 1 }, frame: { ...frame(10), workMeanUs: 1000 } },
-    { locked: { results: [6, 6, 6], shown: [6, 6, 6], seconds: 3, nudges: 0 }, frame: { ...frame(30), workMeanUs: 3000, late: 2 } },
+    { locked: { results: [6, 6, 6], shown: [6, 6, 6], seconds: 3, nudges: 0 }, frame: { ...frame(30), workMeanUs: 3000, late: 2, imuSpanUs: 1100000, imuGapMaxUs: 21000 } },
   ];
   const summary = summarizeType('D6', rolls);
   assert.deepEqual(summary.counts, [1, 1, 1, 0, 0, 3]);
@@ -63,6 +110,10 @@ test('a type\'s summary counts every result, the ones knocked over after locking
   assert.equal(summary.nudges, 1);
   assert.equal(summary.workMeanUs, 2500);
   assert.equal(summary.lateFrames, 2);
+  // 99 + 99 intervals over 0.99 s + 1.1 s.
+  assert.ok(Math.abs(summary.imuRateHz - 198 / 2.09) < 1e-9);
+  assert.equal(summary.imuRateMinHz, 90);
+  assert.equal(summary.imuGapMaxUs, 21000);
 });
 
 test('a run with every roll locked and even results passes', () => {
@@ -80,6 +131,14 @@ test('results all on one face fail chi-square, as the host miscompile turned eve
   assert.match(failures[0], /^D20: chi-square/);
 });
 
+test('rolls that lost IMU samples fail their type', () => {
+  // One sample in ten lost across every D6 roll.
+  const parsed = BOOT_LINES.map(parseRollLine);
+  const lossy = evenRolls('D6', 6, ROLLS.D6).map((roll) => ({ ...roll, frame: { ...roll.frame, imuSpanUs: 1100000 } }));
+  const types = [summarizeType('D6', lossy), summarizeType('D20', evenRolls('D20', 20, ROLLS.D20))];
+  assert.deepEqual(checkRun(parsed, types), ['D6: IMU samples at 90.0 Hz, under 98% of 100 Hz']);
+});
+
 test('a type short of its rolls, an error line and a missing entropy source each fail', () => {
   const parsed = [...BOOT_LINES.filter((line) => !line.includes('rng')), '[roll] FAILED: not every die locked within 20 s'].map(parseRollLine);
   const types = [summarizeType('D6', evenRolls('D6', 6, ROLLS.D6 - 1))];
@@ -94,7 +153,7 @@ test('the markdown has a row per type in both tables', () => {
   const markdown = summaryMarkdown('cardputer', [summarizeType('D6', evenRolls('D6', 6, ROLLS.D6))]);
   assert.match(markdown, /^# Roll verify: cardputer/);
   assert.match(markdown, /\| D6 \| 40 \| 120 \| 0\.00 \| 1\.000 \| 0 \| 0\.50 \/ 0\.50 \| 0 \|/);
-  assert.match(markdown, /\| D6 \| 1200 \| 4000 \| 11000 \| 3000 \| 0 \|/);
+  assert.match(markdown, /\| D6 \| 1200 \| 4000 \| 11000 \| 3000 \| 0 \| 100\.0 \| 100\.0 \| 10500 \|/);
 });
 
 test('the arguments name a product env and a port', () => {
@@ -104,8 +163,8 @@ test('the arguments name a product env and a port', () => {
   assert.throws(() => parseArgs(['--speed', '9']), /unknown argument/);
 });
 
-const LOCKED_LINE = '[roll] locked D6 x3 results=2,5,6 shown=2,5,6 seconds=0.467 nudges=0';
-const FRAME_LINE = '[frame] frames=28 work_mean_us=3806 work_max_us=10482 physics_max_us=3245 late=0';
+const LOCKED_LINE = '[roll] locked D6 x3 results=2,5,6 shown=2,5,6 seconds=0.467 nudges=0 detections=0';
+const FRAME_LINE = '[frame] frames=28 work_mean_us=3806 work_max_us=10482 physics_max_us=3245 late=0 imu_samples=47 imu_span_us=460120 imu_gap_max_us=10950';
 // Long enough for promise continuations, short enough not to slow the suite.
 const SHORT_TIMEOUT_MS = 200;
 

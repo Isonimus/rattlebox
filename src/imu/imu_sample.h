@@ -14,4 +14,12 @@ struct ImuSample {
     uint32_t timestampUs;
 };
 
+/**
+ * @brief A gap between samples this long means the IMU went unread: the screen capture holds the
+ * loop for seconds. Five periods at ADR-0005's 100 Hz, and about three times the longest gap
+ * between the product's reads (17.2 ms, slice 0012). A window spanning such a gap holds only the few
+ * samples after it, and would judge them as if they were all of it, so windows restart instead.
+ */
+constexpr uint32_t IMU_SAMPLE_GAP_LIMIT_US = 50000;
+
 #endif // IMU_SAMPLE_H

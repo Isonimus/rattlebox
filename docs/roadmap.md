@@ -43,8 +43,9 @@ later slices can prove on-screen behaviour with captured frames.
 
 - **D6 and D20**, one to three dice of a single type per roll.
 - **Shake to roll, tilt to slide**: one physics engine (ADR-0002), with a "level" reference
-  captured from the holding angle at the start of each roll. People hold the device tilted
-  toward their face, so without this the dice would always pile against the bottom edge.
+  taken from the latest moment the device was held still, and kept through each roll until its
+  dice lock (slice 0012). People hold the device tilted toward their face, so without this the
+  dice would always pile against the bottom edge.
 - **Top-down camera** looking into the tray, so a die's result face points at the viewer.
 - **Readable results**: numerals drawn in 2D at the projected centres of faces that point
   at the camera, then an overlay with each result and the total once all dice lock.
