@@ -6,6 +6,7 @@
 #include "../../physics/die_result.h"
 #include "../../physics/launch.h"
 #include "../../physics/world.h"
+#include "../../roll/dice_roll.h"
 
 /** @brief Watches every step of a roll; the probe records speeds through it. */
 class StepObserver {
@@ -30,14 +31,6 @@ struct RollOutcome {
     /** @brief Every die locked before the time limit. */
     bool      settled;
 };
-
-bool everyDieLocked(const DieResult* results, uint8_t dieCount);
-
-/**
- * @brief Advance every die's result by one step, nudging each die that came to rest cocked and
- * starting its result over, as the product does. Returns how many dice were nudged.
- */
-uint8_t advanceResults(World& world, DieResult* results, UniformSource& source, const RestThresholds& thresholds);
 
 /**
  * @brief One roll left alone on a level tray, as ADR-0002's fairness test runs it: launch,

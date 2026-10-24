@@ -4,14 +4,15 @@ namespace {
 constexpr int CAPTURE_REQUEST = 'S';
 }
 
-void serviceScreenCapture(LGFX_Sprite& frame, Stream& port) {
+void serviceScreenCapture(LGFX_Sprite& frame, Stream& port, SerialByteHandler other) {
     // Counted and reported once: a line per stray byte would let line noise or a
     // terminal flood the console, and push a queued request's reply past the host's
     // limit on log lines ahead of a frame.
     unsigned ignoredBytes = 0;
     while (port.available() > 0) {
-        if (port.read() != CAPTURE_REQUEST) {
-            ignoredBytes++;
+        const int byte = port.read();
+        if (byte != CAPTURE_REQUEST) {
+            if (other == nullptr || !other(byte)) ignoredBytes++;
             continue;
         }
         // The sprite's own length, not width x height x 2: the host checks the two agree,

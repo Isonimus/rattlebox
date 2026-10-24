@@ -24,6 +24,8 @@
 #include "../../src/probes/fairness/shaken_roll.cpp"
 #include "../../src/probes/fairness/simulated_roll.h"
 #include "../../src/probes/fairness/simulated_roll.cpp"
+#include "../../src/roll/dice_roll.h"
+#include "../../src/roll/dice_roll.cpp"
 
 // Invariant #2 (ADR-0002, ADR-0009, ADR-0010): a die type ships only with a passing fairness test
 // over rolls through the real physics, rolled as the device rolls them: one after another, each
@@ -107,6 +109,26 @@ static void assertFair(const DieShape& shape, uint8_t dice, unsigned long result
                                          "results follow the face the die showed before");
 }
 
+/**
+ * @brief Launch @p dice dice of @p shape from rest, as a change of dice on the device does, until
+ * there are @p results results, and check them with chi-square. A launch draws a uniformly random
+ * orientation, so it carries nothing over from the last result: there is no repeat to check.
+ */
+static void assertLaunchesFair(const DieShape& shape, uint8_t dice, unsigned long results, double critical) {
+    SeededSource source(SEED);
+    // One world for every roll, as the device keeps one.
+    World world{};
+    world.shape = &shape;
+    unsigned long counts[DIE_MAX_FACES + 1] = {};
+    for (unsigned long roll = 0; roll < results / dice; roll++) {
+        const RollOutcome outcome = simulateRollIn(world, dice, source, PRODUCT_REST_THRESHOLDS, TIME_LIMIT_S, nullptr);
+        TEST_ASSERT_TRUE_MESSAGE(outcome.settled, "a launched roll never came to rest");
+        for (uint8_t die = 0; die < dice; die++) counts[outcome.results[die].numeral]++;
+    }
+    TEST_ASSERT_LESS_THAN_DOUBLE_MESSAGE(critical, chiSquare(counts, results / dice * dice, shape.faceCount),
+                                         "launched results are not uniform");
+}
+
 void test_the_chi_square_statistic_matches_a_worked_example() {
     // 60 rolls of a D6 as 5, 8, 9, 8, 10, 20: expected 10 each, so the statistic is
     // (25 + 4 + 1 + 4 + 0 + 100) / 10 = 13.4.
@@ -135,6 +157,14 @@ void test_one_d6_at_a_time_is_fair() { assertFair(makeD6(D6_EDGE_MM), 1, D6_RESU
 void test_three_d20s_at_a_time_are_fair() { assertFair(makeD20(D20_EDGE_MM), MAX_DICE, D20_RESULTS, CRITICAL_D20); }
 void test_three_d6s_at_a_time_are_fair() { assertFair(makeD6(D6_EDGE_MM), MAX_DICE, D6_RESULTS, CRITICAL_D6); }
 
+// A change of die type or count launches the new dice from rest (slice 0011), ADR-0009's roll.
+void test_one_d20_launched_from_rest_is_fair() { assertLaunchesFair(makeD20(D20_EDGE_MM), 1, D20_RESULTS, CRITICAL_D20); }
+void test_one_d6_launched_from_rest_is_fair() { assertLaunchesFair(makeD6(D6_EDGE_MM), 1, D6_RESULTS, CRITICAL_D6); }
+void test_three_d20s_launched_from_rest_are_fair() {
+    assertLaunchesFair(makeD20(D20_EDGE_MM), MAX_DICE, D20_RESULTS, CRITICAL_D20);
+}
+void test_three_d6s_launched_from_rest_are_fair() { assertLaunchesFair(makeD6(D6_EDGE_MM), MAX_DICE, D6_RESULTS, CRITICAL_D6); }
+
 void test_a_loaded_d20_fails_chi_square() {
     // Shows the first check can fail: shifting the body off the centre of mass weights one side,
     // and that die lands heavy side down more often.
@@ -159,12 +189,16 @@ int main() {
 #ifdef FAIRNESS_THREE_DICE
     RUN_TEST(test_three_d20s_at_a_time_are_fair);
     RUN_TEST(test_three_d6s_at_a_time_are_fair);
+    RUN_TEST(test_three_d20s_launched_from_rest_are_fair);
+    RUN_TEST(test_three_d6s_launched_from_rest_are_fair);
 #else
     RUN_TEST(test_the_chi_square_statistic_matches_a_worked_example);
     RUN_TEST(test_the_repeat_z_matches_a_worked_example);
     RUN_TEST(test_a_recording_must_move_forward_by_less_than_the_detector_window);
     RUN_TEST(test_one_d20_at_a_time_is_fair);
     RUN_TEST(test_one_d6_at_a_time_is_fair);
+    RUN_TEST(test_one_d20_launched_from_rest_is_fair);
+    RUN_TEST(test_one_d6_launched_from_rest_is_fair);
     RUN_TEST(test_a_loaded_d20_fails_chi_square);
     RUN_TEST(test_a_throw_alone_fails_the_repeat_check);
 #endif

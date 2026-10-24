@@ -18,11 +18,6 @@ constexpr size_t LINE_CAPACITY = 256;
     exit(EXIT_FAILURE);
 }
 
-uint8_t numeralUp(const World& world, uint8_t die) {
-    const DieShape& shape = *world.shape;
-    return shape.faces[upFace(shape, world.dice[die].orientation).face].numeral;
-}
-
 /** @brief How far the deepest vertex of @p world is past a plane of @p tray; negative inside. */
 float deepestOutside(const World& world, const Tray& tray) {
     float deepest = -tray.heightMm;
@@ -134,7 +129,7 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
     RollOutcome& roll = outcome.roll;
     roll.dieCount = world.dieCount;
     for (uint8_t die = 0; die < world.dieCount; die++) {
-        outcome.startNumerals[die] = numeralUp(world, die);
+        outcome.startNumerals[die] = shownNumeral(world, die);
         // The previous roll's results: locked, so the dice can move before the shake is detected
         // without anything changing.
         roll.results[die] = {DieState::Locked, outcome.startNumerals[die], 0};
@@ -160,7 +155,7 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
             outcome.detections++;
             input.detectedAt(sample.timestampUs);
             for (uint8_t die = 0; die < world.dieCount; die++) {
-                roll.launchNumerals[die] = numeralUp(world, die);
+                roll.launchNumerals[die] = shownNumeral(world, die);
                 roll.results[die] = startRoll();
                 if (kick.kind == ShakeKick::Reorient) world.dice[die].orientation = uniformOrientation(source);
                 if (kick.kind != ShakeKick::None) throwDie(world.dice[die], source);
@@ -185,7 +180,7 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
         roll.seconds = (step - detectionStep) * PHYSICS_STEP_S;
         if (input.held() && !shaking && everyDieLocked(roll.results, world.dieCount)) {
             roll.settled = true;
-            for (uint8_t die = 0; die < world.dieCount; die++) roll.shownNumerals[die] = numeralUp(world, die);
+            for (uint8_t die = 0; die < world.dieCount; die++) roll.shownNumerals[die] = shownNumeral(world, die);
             return outcome;
         }
         if (step - detectionStep >= limitSteps) return outcome;

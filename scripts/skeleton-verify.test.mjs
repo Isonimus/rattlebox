@@ -174,8 +174,13 @@ test('presses need exactly one PRIMARY and one SECONDARY', () => {
   ]);
 });
 
-test('arguments need a known env and a port', () => {
-  assert.deepEqual(parseArgs(['--env', 'cardputer', '--port', '/dev/ttyACM0']), { env: 'cardputer', port: '/dev/ttyACM0' });
+test('arguments need a skeleton env and a port', () => {
+  assert.deepEqual(parseArgs(['--env', 'cardputer-skeleton', '--port', '/dev/ttyACM0']), {
+    env: 'cardputer-skeleton',
+    port: '/dev/ttyACM0',
+  });
   assert.throws(() => parseArgs(['--env', 'custom', '--port', 'p']), /--env must be one of/);
-  assert.throws(() => parseArgs(['--env', 'cardputer']), /--port is required/);
+  // The product no longer prints the readout this script checks (slice 0011).
+  assert.throws(() => parseArgs(['--env', 'cardputer', '--port', 'p']), /--env must be one of/);
+  assert.throws(() => parseArgs(['--env', 'cardputer-skeleton']), /--port is required/);
 });

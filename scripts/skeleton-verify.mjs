@@ -7,7 +7,9 @@
 // error or panic. Writes artifacts/skeleton/<env>/: the raw samples as CSV, a summary with
 // the measured rest noise and sample rate, and the screen as PNG.
 //
-// Usage: npm run verify:skeleton -- --env cardputer --port /dev/ttyACM0
+// Usage: npm run verify:skeleton -- --env cardputer-skeleton --port /dev/ttyACM0
+// Flash the skeleton first: pio run -e <env> -t upload. The product replaced its readout in
+// slice 0011, so the skeleton has envs of its own.
 //
 // Everything above main() is pure and tested by scripts/skeleton-verify.test.mjs.
 
@@ -17,7 +19,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
-export const ENVS = ['cardputer', 'm5stickc-plus2'];
+export const ENVS = ['cardputer-skeleton', 'm5stickc-plus2-skeleton'];
 export const REQUIRED_SUBSYSTEMS = ['power', 'display', 'input', 'imu'];
 
 // Thresholds from the slice's Definition of Done, with the accelerometer floor raised from
@@ -210,8 +212,8 @@ const MOTION_WINDOW_MS = 5000;
 const PRESS_WINDOW_MS = 8000;
 
 const PRESS_KEYS = {
-  cardputer: 'the board\'s Enter key, then its Backspace key',
-  'm5stickc-plus2': 'button A (front), then button B (on the side above the screen\'s board name, not the power button opposite it)',
+  'cardputer-skeleton': 'the board\'s Enter key, then its Backspace key',
+  'm5stickc-plus2-skeleton': 'button A (front), then button B (on the side above the screen\'s board name, not the power button opposite it)',
 };
 
 /** Collects the board's lines; every check reads a window of them. */
