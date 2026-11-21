@@ -54,6 +54,14 @@ test('the product\'s roll and frame lines parse', () => {
   );
 });
 
+test('the product\'s sound and heap lines parse', () => {
+  assert.deepEqual(parseRollLine('[sound] clacks=212 render_max_us=175'), { kind: 'sound', clacks: 212, renderMaxUs: 175 });
+  assert.deepEqual(parseRollLine('[sound] rest clacks=0 seconds=2.0'), { kind: 'sound-rest', clacks: 0, seconds: 2 });
+  assert.deepEqual(parseRollLine('[heap] free=190132 min_free=189980 largest_dma=147444'), {
+    kind: 'heap', free: 190132, minFree: 189980, largestDma: 147444,
+  });
+});
+
 test('a shake before the device was ever held still has no level tilt', () => {
   assert.equal(parseRollLine('[roll] shake D20 x1 level_tilt_deg=none').levelTiltDeg, null);
 });

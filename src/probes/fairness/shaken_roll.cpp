@@ -141,7 +141,8 @@ void holdBefore(const ShakeRecording& recording, ShakeRoll& shakeRoll, World& wo
 } // namespace
 
 ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, float extraS, KickPlan kick,
-                                 UniformSource& source, const RestThresholds& thresholds, float timeLimitS) {
+                                 UniformSource& source, const RestThresholds& thresholds, float timeLimitS,
+                                 ReplayObserver* observer) {
     const double stepUs = PHYSICS_STEP_S * US_PER_S;
     const uint32_t startUs = recording.samples.front().timestampUs;
     const uint32_t limitSteps = stepsIn(timeLimitS);
@@ -173,6 +174,7 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
         }
 
         roll.nudges += shakeRoll.step(world, roll.results, source, thresholds);
+        if (observer != nullptr) observer->stepped(world, shakeRoll.shaking());
         outcome.deepestOutsideMm = fmaxf(outcome.deepestOutsideMm, deepestOutside(world, PRODUCT_TRAY));
         for (uint8_t die = 0; die < world.dieCount; die++) {
             outcome.fastestMmPerS = fmaxf(outcome.fastestMmPerS, length(world.dice[die].velocity));

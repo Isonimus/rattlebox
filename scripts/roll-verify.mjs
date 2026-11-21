@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Device check for the dice roll (slice 0011), with the IMU's sample rate added in slice 0012.
+// Device check for the dice roll (slice 0011), with the IMU's sample rate added in slice 0012 and
+// the parsing of the sound and heap lines in slice 0013.
 //
 // Resets a board running the product through scripts/serial_reset_monitor.py, checks its boot,
 // then rolls three D6 and three D20 through the product's one-byte serial commands. Fails on any
@@ -48,6 +49,11 @@ const LOCKED =
 const FRAME =
   /^\[frame\] frames=(\d+) work_mean_us=(\d+) work_max_us=(\d+) physics_max_us=(\d+) late=(\d+) imu_samples=(\d+) imu_span_us=(\d+) imu_gap_max_us=(\d+)$/;
 
+// Slice 0013: each roll's clacks after its frame line, the clacks at rest after its lock, and the heap.
+const SOUND = /^\[sound\] clacks=(\d+) render_max_us=(\d+)$/;
+const SOUND_REST = /^\[sound\] rest clacks=(\d+) seconds=(\d+\.\d)$/;
+const HEAP = /^\[heap\] free=(\d+) min_free=(\d+) largest_dma=(\d+)$/;
+
 const numerals = (field) => field.split(',').map(Number);
 
 /** @returns {{kind: string, [key: string]: unknown}} */
@@ -69,6 +75,12 @@ export function parseRollLine(line) {
   if ((match = FRAME.exec(line))) {
     const [frames, workMeanUs, workMaxUs, physicsMaxUs, late, imuSamples, imuSpanUs, imuGapMaxUs] = match.slice(1).map(Number);
     return { kind: 'frame', frames, workMeanUs, workMaxUs, physicsMaxUs, late, imuSamples, imuSpanUs, imuGapMaxUs };
+  }
+  if ((match = SOUND.exec(line))) return { kind: 'sound', clacks: Number(match[1]), renderMaxUs: Number(match[2]) };
+  if ((match = SOUND_REST.exec(line))) return { kind: 'sound-rest', clacks: Number(match[1]), seconds: Number(match[2]) };
+  if ((match = HEAP.exec(line))) {
+    const [free, minFree, largestDma] = match.slice(1).map(Number);
+    return { kind: 'heap', free, minFree, largestDma };
   }
   return parseLine(line);
 }

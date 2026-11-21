@@ -41,16 +41,25 @@ struct ShakenOutcome {
     float       fastestMmPerS;
 };
 
+/** @brief Told after each step of a replay, for a probe measuring what the steps do. */
+class ReplayObserver {
+public:
+    virtual ~ReplayObserver() = default;
+    virtual void stepped(const World& world, bool shaking) = 0;
+};
+
 /**
  * @brief Replay @p recording through ShakeRoll on dice resting in @p world, as the device rolls
  * them: after SHAKE_WINDOW_US held still at the recording's mean, the recording's samples, each
  * detection kicking with @p kick; @p extraS after the first detection the device is held still at
  * that angle again, and the roll runs until every die locks or @p timeLimitS after the detection.
  *
- * @p world keeps the dice where they end, so the next roll can start from this one.
+ * @p world keeps the dice where they end, so the next roll can start from this one. @p observer, if
+ * any, is told after every step.
  */
 ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, float extraS, KickPlan kick,
-                                 UniformSource& source, const RestThresholds& thresholds, float timeLimitS);
+                                 UniformSource& source, const RestThresholds& thresholds, float timeLimitS,
+                                 ReplayObserver* observer = nullptr);
 
 /** @brief Shaken rolls added up: the results, and what went wrong on the way to them. */
 struct ShakenTally {

@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include <math.h>
@@ -18,10 +19,12 @@
 #include "roll/dice_choice.h"
 #include "roll/dice_roll.h"
 #include "roll/shake_roll.h"
+#include "sound/clack_loudness.h"
+#include "sound/hit_finder.h"
 
 // The product: dice rolled by the device's own motion (slice 0012) or launched from rest by the
 // controls and the serial port (slice 0011), stepped by the physics at 60 fps, and their results
-// shown once every die locks.
+// shown once every die locks; each hit in the physics clacks (slice 0013).
 
 namespace {
 
@@ -45,6 +48,9 @@ constexpr uint8_t STEPS_PER_FRAME = 4;
 // A roll that has not locked by now has a die the physics never brings to rest: the fairness
 // test's limit, which no roll of its tens of thousands reached.
 constexpr float ROLL_LIMIT_S = 20.0f;
+// How long after a lock the clacks are counted as the dice lying at rest: long past the 0.037 s
+// after which a resting die last tipped (slice 0008), and short enough for a person to hold still.
+constexpr float REST_REPORT_S = 2.0f;
 
 constexpr int CANVAS_COLOR_DEPTH = 16;
 // The tray fills the screen: 240 px across 105 mm is ADR-0007's 24 px D20 edge, and the 59 mm
@@ -123,6 +129,12 @@ uint16_t rollNudges = 0;
 uint8_t rollDetections = 0;
 bool rollReported = false;
 FrameCosts costs{};
+HitFinder hitFinder;
+uint32_t rollClacks = 0;
+// The clacks over REST_REPORT_S after a lock, where the dice lie still and none should play.
+uint32_t restClacks = 0;
+uint32_t restSteps = 0;
+bool restReported = false;
 
 LGFX_Sprite* drawing = nullptr;
 LGFX_Sprite* sending = nullptr;
@@ -138,6 +150,47 @@ void startRollCounters() {
     rollDetections = 0;
     rollReported = false;
     costs = {};
+    rollClacks = 0;
+    restClacks = 0;
+    restSteps = 0;
+    restReported = false;
+    hal.audio.takeLongestRenderUs();
+}
+
+/** @brief The heap now and at its lowest since boot, and the largest block a DMA buffer could take (ADR-0007). */
+void reportHeap() {
+    Serial.printf("[heap] free=%u min_free=%u largest_dma=%u\n",
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
+}
+
+/**
+ * @brief Clack for each hit of the step just taken that is loud enough to hear, and count it: as the
+ * roll's until its lock is reported, then as the rest's. The rest's steps are counted here too, so
+ * they are exactly the steps whose hits it holds, starting with the first step after the lock's frame.
+ */
+void playHits() {
+    if (rollReported && !restReported) restSteps++;
+    float impulses[MAX_HITS_PER_STEP];
+    const uint8_t hits = hitFinder.find(world, impulses);
+    for (uint8_t hit = 0; hit < hits; hit++) {
+        const float loudness = clackLoudness(impulses[hit]);
+        if (loudness == 0) continue;
+        hal.audio.clack(loudness);
+        if (!rollReported) {
+            rollClacks++;
+        } else if (!restReported) {
+            restClacks++;
+        }
+    }
+}
+
+/** @brief Once REST_REPORT_S has passed since the lock, say how many clacks played meanwhile. */
+void reportRest() {
+    if (!rollReported || restReported || restSteps < stepsIn(REST_REPORT_S)) return;
+    Serial.printf("[sound] rest clacks=%lu seconds=%.1f\n", static_cast<unsigned long>(restClacks), restSteps * PHYSICS_STEP_S);
+    restReported = true;
 }
 
 void launch() {
@@ -207,6 +260,8 @@ void reportRoll() {
         if (seconds < ROLL_LIMIT_S) return;
         Serial.printf("[roll] FAILED: not every die locked within %.0f s\n", ROLL_LIMIT_S);
         rollReported = true;
+        // Dice still moving are no rest to count clacks in.
+        restReported = true;
         return;
     }
     uint8_t locked[MAX_DICE];
@@ -228,6 +283,9 @@ void reportRoll() {
                   static_cast<unsigned long>(costs.lateFrames), static_cast<unsigned long>(costs.imuSamples),
                   static_cast<unsigned long>(costs.lastImuUs - costs.firstImuUs),
                   static_cast<unsigned long>(costs.longestImuGapUs));
+    Serial.printf("[sound] clacks=%lu render_max_us=%lu\n", static_cast<unsigned long>(rollClacks),
+                  static_cast<unsigned long>(hal.audio.takeLongestRenderUs()));
+    reportHeap();
     rollReported = true;
 }
 
@@ -354,10 +412,12 @@ void setup() {
     // the latch cannot fail, so nothing is lost by bringing the display up second.
     const BootStep steps[] = {
         {"power", hal.power},   {"display", hal.display}, {"canvas", front},     {"canvas", back},
-        {"input", hal.input},   {"imu", hal.imu},         {"rng", randomness},
+        {"input", hal.input},   {"imu", hal.imu},         {"audio", hal.audio}, {"rng", randomness},
     };
     const BootOutcome outcome = runBootSteps(steps, sizeof(steps) / sizeof(steps[0]), logStarted);
     if (outcome.failedStep != nullptr) haltOnFailure(outcome);
+    // Every part is up, so nothing allocates its buffers later: this is the heap the product runs on.
+    reportHeap();
 
     drawing = &back.sprite();
     sending = &front.sprite();
@@ -384,6 +444,7 @@ void loop() {
         const uint32_t stepStartUs = micros();
         rollNudges += shakeRoll.step(world, results, randomness, PRODUCT_REST_THRESHOLDS);
         physicsUs += micros() - stepStartUs;
+        playHits();
         rollSteps++;
     }
 
@@ -405,6 +466,7 @@ void loop() {
         if (pace.late) costs.lateFrames++;
     }
     reportRoll();
+    reportRest();
     waitReadingImu(pace.waitUs);
     frameDeadlineUs = pace.nextDeadlineUs;
 }

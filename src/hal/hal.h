@@ -1,6 +1,7 @@
 #ifndef HAL_H
 #define HAL_H
 
+#include "audio_hal.h"
 #include "display_hal.h"
 #include "input_hal.h"
 #include "imu_hal.h"
@@ -17,6 +18,7 @@ struct HardwareHAL {
     InputHAL&   input;
     ImuHAL&     imu;
     PowerHAL&   power;
+    AudioHAL&   audio;
 };
 
 /**
