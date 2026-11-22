@@ -7,7 +7,8 @@ import { test } from 'node:test';
 import {
   appOffset,
   changelogSection,
-  checkBootloaderDio,
+  checkBootloaderHeader,
+  checkImageHeader,
   checkReleaseVersion,
   checksumLines,
   noticesText,
@@ -73,13 +74,28 @@ test("entries after the table's end are not read as partitions", () => {
   assert.throws(() => appOffset(table), /neither a factory nor an ota_0/);
 });
 
-test('a merged image is accepted only when its bootloader header names DIO', () => {
+test('a merged image is accepted only when a DIO bootloader header sits at the bootloader offset', () => {
   const image = Buffer.alloc(0x1010, 0xff);
+  image[0x1000] = 0xe9;
   image[0x1000 + 2] = 0x02;
-  assert.doesNotThrow(() => checkBootloaderDio(image, 0x1000));
+  assert.doesNotThrow(() => checkBootloaderHeader(image, 0x1000));
   image[0x1000 + 2] = 0x00; // QIO: the boot ROM misreads the bootloader and resets for good
-  assert.throws(() => checkBootloaderDio(image, 0x1000), /0x0, not DIO/);
-  assert.throws(() => checkBootloaderDio(Buffer.alloc(1), 0x1000), /not DIO/);
+  assert.throws(() => checkBootloaderHeader(image, 0x1000), /0x0, not DIO/);
+  assert.throws(() => checkBootloaderHeader(Buffer.alloc(1), 0x1000), /no ESP image/);
+});
+
+test('a DIO byte with no image header there is refused: the bootloader is not at that offset', () => {
+  // A classic ESP32 image is erased flash from 0x0 to its bootloader at 0x1000. Read at the wrong
+  // offset, a stray 0x02 must not pass for a DIO bootloader.
+  const image = Buffer.alloc(0x1010, 0xff);
+  image[2] = 0x02;
+  assert.throws(() => checkBootloaderHeader(image, 0), /no ESP image header at 0x0/);
+});
+
+test('an app image is accepted only when it opens with an ESP image header', () => {
+  assert.doesNotThrow(() => checkImageHeader(Buffer.from([0xe9, 0x05, 0x02, 0x2f]), 0, 'the app'));
+  assert.throws(() => checkImageHeader(Buffer.from([0xff, 0xff]), 0, 'the app'), /the app: no ESP image header at 0x0/);
+  assert.throws(() => checkImageHeader(Buffer.alloc(0), 0, 'the app'), /no ESP image header/);
 });
 
 test('checksum lines are what sha256sum -c reads', () => {

@@ -4,16 +4,18 @@
 //        node scripts/release.mjs --check-image <env> [--out dist]
 // Build first: pio run -e cardputer && pio run -e m5stickc-plus2
 //
-// --check-image merges and checks one board's image at whatever version the build was stamped
+// --check-image merges and checks one board's images at whatever version the build was stamped
 // with, and writes nothing else. CI runs it on every push, so packaging that breaks fails there
 // rather than at the next tag, which is the only other place this script runs.
 //
 // The release workflow (.github/workflows/release.yml) runs it on a pushed tag. For each board it
-// merges the bootloader, partition table, OTA data and app into one image that flashes at 0x0,
-// refusing one whose firmware does not carry the release's version or whose bootloader header is
-// not DIO. It then writes NOTICES.md, which the licenses of the code compiled in ask a binary
-// release to carry, SHA256SUMS.txt, and RELEASE_NOTES.md, the version's section of CHANGELOG.md,
-// which the workflow uses as the release's description and which must exist.
+// merges the bootloader, partition table, OTA data and app into one image that flashes at 0x0 (for
+// esptool, M5Burner and web flashers), and copies the app alone for OTA installers such as
+// M5Launcher (ADR-0025). It refuses an image whose firmware does not carry the release's version,
+// or whose bootloader header is missing or not DIO. It then writes NOTICES.md, which the licenses
+// of the code compiled in ask a binary release to carry, SHA256SUMS.txt, and RELEASE_NOTES.md, the
+// version's section of CHANGELOG.md, which the workflow uses as the release's description and which
+// must exist.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -45,6 +47,10 @@ const PARTITION_SUBTYPE_OTA_0 = 0x10;
 // bricked a board on its first flash is how the Adversary learned it (adversary:slice-0014).
 const IMAGE_FLASH_MODE_BYTE = 2;
 const FLASH_MODE_DIO = 0x02;
+// Byte 0 of every ESP image, bootloader or app. Without it at the bootloader offset the flash-mode
+// byte read there belongs to no bootloader: a classic ESP32 image is erased flash up to 0x1000, so a
+// check at the wrong offset could pass on a stray 0x02 (esp32-wifi-sapper:ADR-0095 checks both).
+const IMAGE_MAGIC = 0xe9;
 
 /** The release's version, which must be a tag of the form v<major>.<minor>.<patch>. */
 export function checkReleaseVersion(version) {
@@ -75,8 +81,16 @@ export function appOffset(partitionTable) {
   return boot.offset;
 }
 
-/** Throws unless the bootloader inside a merged image names DIO as its flash mode. */
-export function checkBootloaderDio(mergedImage, bootloaderOffset) {
+/** Throws unless an ESP image header (`what`, for the message) starts at `offset` in `image`. */
+export function checkImageHeader(image, offset, what) {
+  if (image[offset] !== IMAGE_MAGIC) {
+    throw new Error(`${what}: no ESP image header at 0x${offset.toString(16)}`);
+  }
+}
+
+/** Throws unless a bootloader whose header names DIO as its flash mode sits at `bootloaderOffset`. */
+export function checkBootloaderHeader(mergedImage, bootloaderOffset) {
+  checkImageHeader(mergedImage, bootloaderOffset, 'the merged image');
   const mode = mergedImage[bootloaderOffset + IMAGE_FLASH_MODE_BYTE];
   if (mode !== FLASH_MODE_DIO) {
     throw new Error(`the merged bootloader's flash mode is 0x${mode?.toString(16)}, not DIO (0x02): it would not boot`);
@@ -164,16 +178,22 @@ function packageBoard(board, outDir, releaseVersion) {
   run(platformEsptool(), ['--chip', board.chip, 'merge-bin', '-o', output,
     '--flash-mode', 'dio', '--flash-freq', 'keep', '--flash-size', 'keep', ...offsetArgs]);
   const merged = readFileSync(output);
-  checkBootloaderDio(merged, images[0].offset);
-  return { name, bytes: merged };
+  checkBootloaderHeader(merged, images[0].offset);
+  // The app alone, for an installer that writes it into an app slot of its own partition table
+  // rather than flashing at 0x0 (M5Launcher). The firmware reads no partition, NVS or filesystem,
+  // so it runs from whichever slot it lands in (ADR-0025).
+  const appName = `rattlebox-${built}-${board.asset}-app.bin`;
+  const app = readFileSync(join(buildDir, 'firmware.bin'));
+  checkImageHeader(app, 0, appName);
+  writeFileSync(join(outDir, appName), app);
+  return [{ name, bytes: merged }, { name: appName, bytes: app }];
 }
 
 function checkImage(env, outDir) {
   const board = BOARDS.find((candidate) => candidate.env === env);
   if (!board) throw new Error(`--check-image ${env}: not a released board (${BOARDS.map((b) => b.env).join(', ')})`);
   mkdirSync(outDir, { recursive: true });
-  const { name } = packageBoard(board, outDir);
-  console.log(`Image ${name} merged and checked in ${outDir}`);
+  for (const { name } of packageBoard(board, outDir)) console.log(`Image ${name} checked in ${outDir}`);
 }
 
 function main() {
@@ -195,7 +215,7 @@ function main() {
   const releaseNotes = changelogSection(readFileSync('CHANGELOG.md', 'utf8'), version);
   mkdirSync(values.out, { recursive: true });
 
-  const files = BOARDS.map((board) => packageBoard(board, values.out, version));
+  const files = BOARDS.flatMap((board) => packageBoard(board, values.out, version));
   const lovyanLicense = join('.pio', 'libdeps', BOARDS[0].env, 'LovyanGFX', 'license.txt');
   const notices = noticesText({
     version,

@@ -1,7 +1,7 @@
 name: CI
 
 # Every push to main and every pull request: the host tests, the three-dice fairness test, both
-# boards' firmware with a warnings gate, a size report and its release image merged, and cppcheck
+# boards' firmware with a warnings gate, a size report and its release images checked, and cppcheck
 # (ADR-0022, ADR-0021).
 on:
   push:
@@ -96,7 +96,7 @@ jobs:
         run: node scripts/lint-build-warnings.mjs build.log
       # The release merges this image the same way; checking it here finds a broken packaging step
       # on the push that breaks it, not at the next tag (ADR-0021).
-      - name: Release image merges and boots DIO
+      - name: Release images pass their checks (merged image boots DIO, app image opens with its header)
         run: node scripts/release.mjs --check-image ${{ matrix.env }} --out dist
       - name: Size report
         run: |

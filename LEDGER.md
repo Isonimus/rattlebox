@@ -20,6 +20,7 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 - [deferred] The tray's gravity leaves out the rotating frame's centrifugal, Euler and Coriolis terms from the gyro; adding them would stir the dice more, so the fairness test reruns if they are (ADR-0010)
 - [feature] A roll trigger a brisk walk cannot fire, such as a shake that must start from holding still or a button held while shaking; it needs a probe protocol of walk, stop and shake, and could also catch the slow rocking shakes the busy share misses (ADR-0024)
 - [feature] A browser web flasher on GitHub Pages for the release images, so a board can be flashed without installing esptool (ADR-0021)
+- [audit] Install a release's `-app.bin` through M5Launcher on both boards: the app runs from another partition table's slot only because it reads no partition, NVS or filesystem, and no install has shown it yet (ADR-0025)
 - [audit] A release's `NOTICES.md` carries ESP-IDF's `COPYRIGHT.rst` component list, not each linked component's own license text; establish which components the firmware links and carry their texts (ADR-0021)
 - [deferred] On-device checks (`*-verify.mjs` device halves) need a board on the port and no hardware-in-the-loop runner exists, so CI runs only their parsing tests (ADR-0003)
 

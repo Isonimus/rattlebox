@@ -104,6 +104,12 @@ esptool write-flash 0x0 rattlebox-v0.1.0-cardputer-adv.bin     # Cardputer ADV
 esptool write-flash 0x0 rattlebox-v0.1.0-m5stickc-plus2.bin    # M5StickC Plus 2
 ```
 
+The same image works in [M5Burner](https://docs.m5stack.com/en/download): add it as a *User
+Custom* firmware for your board and burn it. Releases after v0.1.0 also carry
+`rattlebox-<version>-<board>-app.bin`, the app alone, for an installer that writes it over the air
+into its own partition layout, such as M5Launcher; don't flash that one at 0x0, it has no
+bootloader (ADR-0025).
+
 `SHA256SUMS.txt` checks the download (`sha256sum -c SHA256SUMS.txt`), and `NOTICES.md` carries the
 licenses of the code compiled into the firmware. The first line the board prints over USB serial,
 at 115200 baud, names the version it runs: `[boot] Rattlebox v0.1.0 on <board>`.

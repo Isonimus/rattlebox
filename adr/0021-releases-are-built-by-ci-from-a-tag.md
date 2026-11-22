@@ -40,6 +40,9 @@ The repository is public on GitHub (`Isonimus/rattlebox`), as of 2026-11-22.
   OTA data and app at the offsets PlatformIO reports for the env, with the app at the offset of the
   partition the bootloader starts (factory, else `ota_0`), read from the built `partitions.bin`. It
   flashes at 0x0 with `esptool write-flash 0x0`.
+
+  *Amended 2026-11-22 by ADR-0025: each release also carries the app alone, `-app.bin`, for OTA
+  installers, and the merged image must hold an ESP image header at its bootloader's offset.*
 - **Refused images.** `release.mjs` fails rather than package an image whose firmware was stamped
   with another version than the tag (a dirty or untagged build), or whose bootloader header is not
   DIO. The boot ROM reads the bootloader in its header's mode before it can switch to quad, so a

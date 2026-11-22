@@ -5,6 +5,12 @@ same commit as the change it describes. Each release's section is its GitHub rel
 so `scripts/release.mjs` refuses to release a version with no section here (ADR-0021). The
 decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
 
+## Unreleased
+
+- **Installing with M5Launcher.** Each release also carries the app alone,
+  `rattlebox-<version>-<board>-app.bin`, for over-the-air installers. The full image, which esptool
+  and M5Burner flash, is unchanged.
+
 ## v0.1.0 (2026-11-22)
 
 The first release: a dice tray for the M5Stack Cardputer ADV and the M5StickC Plus 2.
