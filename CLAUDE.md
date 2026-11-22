@@ -137,6 +137,7 @@ actually wired (R11), so a row cannot claim a check that runs nowhere.
 | 3 | A die's reported result never changes after it locks at first rest; only a new roll replaces it. | ADR-0002, ADR-0009 | verified_by: `test/test_die_result` (`npm test`) |
 | 4 | Timing derived from IMU samples uses their timestamps, never the configured output rate: the chips' clocks were measured up to 1.1% off it. | ADR-0005 | review-only |
 | 5 | Every I2C bus is cleared with `clearI2cBus` before its controller starts, and a failed clear fails the boot: a reset mid-read leaves a device sending into the boot's first transfer. | ADR-0019 | review-only |
+| 6 | A change to what a person sees or does with the device, or to how they build, flash or verify it, updates `README.md` in the same commit, screen captures included when the screen changed. The README is the project's front page, and one that describes an older build misleads every first reader. | stele:ADR-0010 | review-only (`/wrap-up` question 1) |
 
 When an ADR's consequences create a rule that all *future* work must follow, add the row
 in the same commit as the ADR.
