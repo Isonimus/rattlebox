@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/status-v0.1%20in%20development-orange" alt="Status: v0.1 in development">
+  <a href="https://github.com/Isonimus/rattlebox/releases/latest"><img src="https://img.shields.io/github/v/release/Isonimus/rattlebox" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-ESP32%20%2F%20ESP32--S3-333?logo=espressif" alt="Platform: ESP32 / ESP32-S3">
   <img src="https://img.shields.io/badge/built%20with-PlatformIO-orange?logo=platformio" alt="Built with PlatformIO">
   <a href="https://www.npmjs.com/package/@isonimus/stele"><img src="https://img.shields.io/badge/method-Stele-6E44FF" alt="Built with Stele"></a>
@@ -20,6 +20,7 @@
   <a href="#how-it-plays">How it plays</a> •
   <a href="#controls">Controls</a> •
   <a href="#supported-boards">Boards</a> •
+  <a href="#installing-a-release">Installing</a> •
   <a href="#building-and-flashing">Building</a> •
   <a href="#verifying">Verifying</a> •
   <a href="#roadmap">Roadmap</a> •
@@ -39,8 +40,9 @@ other; tilt it and they slide; let them settle and the face each one lies on is 
 </table>
 
 > [!NOTE]
-> Rattlebox is working toward its first version, v0.1. Everything below runs on both boards today,
-> but there is no release yet: you build and flash it from source.
+> v0.1 is the first release. Each board has a ready-made image on the
+> [releases page](https://github.com/Isonimus/rattlebox/releases/latest); see
+> [Installing a release](#installing-a-release).
 
 ## How it plays
 
@@ -86,16 +88,34 @@ Both boards are built from one codebase; only `src/hal/boards/` differs (ADR-000
 the slower chip with the smaller heap, so it sets the performance budget. The original Cardputer
 is not supported.
 
+## Installing a release
+
+Each [release](https://github.com/Isonimus/rattlebox/releases/latest) has one image per board,
+built by CI from the tagged source, which flashes at address 0x0. With
+[esptool](https://docs.espressif.com/projects/esptool/) (`pip install esptool`), the board on USB:
+
+```bash
+esptool write-flash 0x0 rattlebox-v0.1.0-cardputer-adv.bin     # Cardputer ADV
+esptool write-flash 0x0 rattlebox-v0.1.0-m5stickc-plus2.bin    # M5StickC Plus 2
+```
+
+`SHA256SUMS.txt` checks the download (`sha256sum -c SHA256SUMS.txt`), and `NOTICES.md` carries the
+licenses of the code compiled into the firmware. The first line the board prints over USB serial,
+at 115200 baud, names the version it runs: `[boot] Rattlebox v0.1.0 on <board>`.
+
 ## Building and flashing
 
-You need [PlatformIO](https://platformio.org/install) and, for the checks, Node.js and Python 3.
+You need [PlatformIO](https://platformio.org/install) and, for the checks, Node.js 22 and Python 3.10
+to 3.13 (`pip install -r requirements.txt` installs the pinned tools). The build stamps the firmware
+with its version from git; a build from a downloaded source archive, which has no git history,
+names it instead, as in `RATTLEBOX_VERSION=v0.1.0 pio run -e cardputer`.
 
 ```bash
 pio run -e cardputer -t upload          # Cardputer ADV
 pio run -e m5stickc-plus2 -t upload     # M5StickC Plus 2
 ```
 
-The firmware logs its boot and every roll over USB serial at 115200 baud. It also takes one-byte
+The firmware logs its version, its boot and every roll over USB serial at 115200 baud. It also takes one-byte
 commands there, which the device checks use: `R` rolls again, `T` switches the die type, `C`
 cycles the count, and `S` sends a screen capture.
 
@@ -109,7 +129,7 @@ cycles the count, and `S` sends a screen capture.
 | `npm run verify:roll -- --env <env> --port <port>` | On a flashed board: boots, rolls 40 times three D6 and 60 times three D20, checks every roll locks and the results pass chi-square, and saves screen captures |
 
 `verify:skeleton`, `verify:shake` and `verify:sound` are the other device checks; each names its
-usage at the top of its script in `scripts/`.
+usage at the top of its script in `scripts/`. Pushing a `v*` tag builds and publishes a release.
 
 ## Roadmap
 

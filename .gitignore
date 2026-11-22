@@ -19,3 +19,6 @@ artifacts/
 
 # Python bytecode from running the host scripts and their tests
 __pycache__/
+
+# Release images and notices written by scripts/release.mjs
+dist/

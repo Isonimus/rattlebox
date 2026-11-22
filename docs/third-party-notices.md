@@ -4,17 +4,19 @@ Code from others that is compiled into the Rattlebox firmware, with its license.
 live document: a change that adds, removes or upgrades such a component updates this file
 in the same commit.
 
-Rattlebox does not publish firmware binaries yet. Several of these licenses attach
-conditions to binary distribution, listed in the last column. A release must meet them
-before it ships, and `LEDGER.md` tracks that work.
+Several of these licenses attach conditions to binary distribution, listed in the last column.
+Each GitHub release meets them through `NOTICES.md`, which `scripts/release.mjs` writes into the
+release from this file, `LICENSE`, LovyanGFX's own `license.txt` and the upstream license texts
+vendored in [`licenses/`](licenses/), and which offers the tagged source the release was built
+from (ADR-0021).
 
 | Component | Version | Where | License | On binary distribution |
 |---|---|---|---|---|
 | Bosch Sensortec BMI270 config file | Sensor API v2.113.0 | `src/hal/boards/cardputer/bmi270_config.h` (Cardputer build only) | BSD-3-Clause | Reproduce the notice below in the documentation |
 | M5Unified speaker-enable register values | 0.2.27 | `src/hal/boards/cardputer/es8311.cpp` (Cardputer build only) | MIT | Include the notice below with the firmware |
 | LovyanGFX | 1.2.19 | PlatformIO library | FreeBSD (BSD-2-Clause) for LovyanGFX, plus MIT and BSD notices for the Adafruit and TFT_eSPI code it derives from (its `license.txt`) | Reproduce each notice in the documentation |
-| Arduino core for ESP32 | 3.3.7 | PlatformIO framework | LGPL-2.1-or-later | Let the recipient relink the firmware against a modified core, for example by publishing the source |
-| ESP-IDF (inside the Arduino core) | 5.5.0 | PlatformIO framework libraries | Apache-2.0, with components under their own licenses | Include the license and any NOTICE files |
+| Arduino core for ESP32 | 3.3.7 | PlatformIO framework | LGPL-2.1-or-later (text in `licenses/`) | Let the recipient relink the firmware against a modified core, for example by publishing the source |
+| ESP-IDF (inside the Arduino core) | 5.5.2-729 (`release/v5.5` at `87912cd291`) | PlatformIO framework libraries | Apache-2.0, with components under their own licenses, listed in its `COPYRIGHT.rst` | Include the license and any NOTICE files; ESP-IDF has no NOTICE file, and its license and component list are in `licenses/` |
 
 Code copied from Dragon Radar (ADR-0001) has the same author and is not third-party. Rattlebox's
 own code, that copied code included, is under the MIT license in `LICENSE`, the license Dragon

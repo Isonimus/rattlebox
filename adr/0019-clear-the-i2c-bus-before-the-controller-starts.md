@@ -29,6 +29,10 @@ Three facts put the cause on the bus:
   once a transfer has already failed, and `i2c_master_bus_reset`. So the boot's first transfer
   runs into the chip, and its failure is what frees the bus, as the next boot showed.
 
+  > **Correction, 2026-11-22:** the ESP-IDF inside Arduino core 3.3.7 is 5.5.2-729 (`IDF_VER`,
+  > and `release/v5.5` at `87912cd291` in the libraries' `versions.txt`), not 5.5.1. The
+  > disassembly was of that build's `libesp_driver_i2c.a`, so the finding stands (ADR-0020).
+
 A probe (`src/probes/i2c_clear/`, env `m5stickc-plus2-i2c-clear-probe`) put the bus in that state
 on purpose. It bit-banged a read of WHO_AM_I (0x19, `00011001`) and let go of the bus 0 to 8 clocks
 into the data byte, as the ESP32's pins float at reset. It then ran the product's `Mpu6886::begin`,

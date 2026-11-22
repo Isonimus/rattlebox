@@ -1,0 +1,57 @@
+name: Release
+
+# A pushed v<major>.<minor>.<patch> tag becomes a GitHub release: both boards built from the tagged
+# source, one image per board that flashes at 0x0, NOTICES.md, checksums, and the version's
+# CHANGELOG.md section as the description (ADR-0021).
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  # gh release create writes the release with the workflow's own token.
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The build stamps `git describe` into the firmware, and release.mjs refuses an image
+          # whose stamp is not the tag, so the tag must be fetched.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v7
+        with:
+          # pioarduino refuses Python above 3.13.
+          python-version: '3.13'
+      - run: pip install -r requirements.txt
+      # A tag can be pushed on any commit, so the release checks for itself that the commit is on
+      # main and passes what CI runs there, rather than trusting that a CI run did.
+      - name: The tag is on main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_REF_NAME is not on main"; exit 1; }
+      - run: npm test
+      - run: npm run test:fairness
+      # Not cached: a release builds from nothing but the tag and the pinned packages.
+      - run: pio run -e cardputer
+      - run: pio run -e m5stickc-plus2
+      - name: Package
+        run: >
+          node scripts/release.mjs --version "$GITHUB_REF_NAME"
+          --source-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --out dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Rattlebox $GITHUB_REF_NAME" \
+            --notes-file dist/RELEASE_NOTES.md \
+            dist/rattlebox-"$GITHUB_REF_NAME"-*.bin \
+            dist/NOTICES.md \
+            dist/SHA256SUMS.txt

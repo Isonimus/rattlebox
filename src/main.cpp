@@ -10,6 +10,7 @@
 #include "app/serial_commands.h"
 #include "boot/boot_steps.h"
 #include "debug/screen_capture.h"
+#include "firmware_version.h"
 #include "geometry/quaternion.h"
 #include "hal/hal.h"
 #include "render/band_drawing.h"
@@ -414,6 +415,8 @@ void setup() {
     // Serial (HardwareSerial, HWCDC) return the size asked for on success, and 0 on failure.
     if (Serial.setTxBufferSize(SERIAL_TX_BUFFER_BYTES) != SERIAL_TX_BUFFER_BYTES) abort();
     Serial.begin(SERIAL_BAUD);
+    // First, so a boot that fails still says which build it was (ADR-0021).
+    Serial.printf("[boot] Rattlebox %s on %s\n", RATTLEBOX_VERSION, hal.boardName);
     hal.imu.configure(PRODUCT_IMU_SETTINGS);
 
     // Power first: the StickC switches itself off unless its HOLD pin is latched, and
