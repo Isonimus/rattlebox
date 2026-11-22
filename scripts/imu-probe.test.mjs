@@ -5,13 +5,21 @@ import assert from 'node:assert/strict';
 
 import {
   GESTURES,
+  OPERATOR_PROTOCOL,
+  PARTICIPANT_PROTOCOL,
   candidateRates,
+  checkFixtureRate,
   decimate,
+  detectedShakes,
   describeTake,
   features,
+  fixtureCsv,
+  fixtureName,
+  fixturePrefix,
   parseArgs,
   parseCaptureCsv,
   separation,
+  takeRows,
 } from './imu-probe.mjs';
 
 const RATE_HZ = 1000;
@@ -159,11 +167,89 @@ test('the protocol has both kinds, and every gesture says what to do', () => {
 
 test('arguments need a probe env, a port unless only analysing, and known gestures', () => {
   assert.deepEqual(parseArgs(['--env', 'cardputer-imu-probe', '--port', 'p']), {
-    env: 'cardputer-imu-probe', port: 'p', gestures: null, analyseOnly: false,
+    env: 'cardputer-imu-probe', port: 'p', gestures: null, participant: null, analyseOnly: false, exportFixtures: false,
   });
   assert.equal(parseArgs(['--env', 'm5stickc-plus2-imu-probe', '--analyse-only']).port, null);
   assert.deepEqual(parseArgs(['--env', 'cardputer-imu-probe', '--port', 'p', '--gestures', 'bump,walk']).gestures, ['bump', 'walk']);
   assert.throws(() => parseArgs(['--env', 'cardputer', '--port', 'p']), /--env must be one of/);
   assert.throws(() => parseArgs(['--env', 'cardputer-imu-probe']), /--port is required/);
   assert.throws(() => parseArgs(['--env', 'cardputer-imu-probe', '--port', 'p', '--gestures', 'juggle']), /unknown gesture/);
+});
+
+test('a participant is an anonymous p-number, and exporting needs one', () => {
+  const args = parseArgs(['--env', 'cardputer-imu-probe-100hz', '--port', 'p', '--participant', 'p12']);
+  assert.equal(args.participant, 'p12');
+  assert.equal(args.exportFixtures, false);
+  assert.equal(parseArgs(['--env', 'cardputer-imu-probe-100hz', '--port', 'p']).participant, null);
+  assert.equal(parseArgs(['--env', 'cardputer-imu-probe-100hz', '--analyse-only', '--participant', 'p2', '--export-fixtures']).exportFixtures, true);
+  for (const name of ['alice', 'P2', 'p', 'p2a', '../p2', '']) {
+    assert.throws(() => parseArgs(['--env', 'cardputer-imu-probe-100hz', '--port', 'p', '--participant', name]), /never a name/, name);
+  }
+  assert.throws(() => parseArgs(['--env', 'cardputer-imu-probe-100hz', '--analyse-only', '--export-fixtures']), /needs --participant/);
+});
+
+test('the operator keeps the original protocol, and a participant gets the near-threshold handling and every shake', () => {
+  const names = GESTURES.map((g) => g.name);
+  assert.ok([...OPERATOR_PROTOCOL, ...PARTICIPANT_PROTOCOL].every((name) => names.includes(name)));
+  assert.deepEqual(OPERATOR_PROTOCOL, ['rest', 'hold', 'pickup', 'setdown', 'walk', 'tilt', 'bump', 'shake-gentle', 'shake-hard']);
+  const kindOf = (name) => GESTURES.find((g) => g.name === name).kind;
+  assert.deepEqual(PARTICIPANT_PROTOCOL.filter((name) => kindOf(name) === 'handling'), ['pickup', 'setdown', 'walk', 'bump']);
+  assert.deepEqual(PARTICIPANT_PROTOCOL.filter((name) => kindOf(name) === 'shake'), names.filter((name) => kindOf(name) === 'shake'));
+});
+
+test('a take is labelled with its participant, and the operator\'s without one', () => {
+  const quiet = series(400);
+  const busy = series(400, (i) => ({ az: i % 2 === 0 ? 3 : -3 }));
+  const takes = [
+    { participant: null, gesture: 'walk', kind: 'handling', take: 1, samples: quiet },
+    { participant: 'p2', gesture: 'shake-slow', kind: 'shake', take: 3, samples: busy },
+  ];
+  const [atCapture] = separation(takes, RATE_HZ);
+  assert.equal(atCapture.features.busyShare.worstShake.take, 'p2/shake-slow-3');
+  assert.equal(atCapture.features.busyShare.worstHandling.take, 'walk-1');
+  const rows = takeRows(takes, RATE_HZ);
+  assert.deepEqual(rows.map((row) => row.take), ['walk-1', 'p2/shake-slow-3']);
+  // Every sample of the shaking take reads 3 g, so 2 g off 1 g; none of the quiet one is off.
+  assert.deepEqual(rows.map((row) => row.busyShare), [0, 1]);
+});
+
+test('a fixture is the capture cut to t_us,ax,ay,az with the values\' text kept and LF line ends', () => {
+  const capture = 't_us,ax,ay,az,gx,gy,gz,accel_saturated,gyro_saturated\r\n'
+    + '1025614146,-0.05517578125,0.3681640625,0.908203125,1.5,-2,0,0,0\r\n'
+    + '1025624189,1e-3,0.35791015625,16,0,0,0,1,0\r\n';
+  assert.equal(fixtureCsv(capture),
+    't_us,ax,ay,az\n1025614146,-0.05517578125,0.3681640625,0.908203125\n1025624189,1e-3,0.35791015625,16\n');
+  assert.throws(() => fixtureCsv('t_us,ax,ay,az\n1,0,0,1\n'), /unexpected CSV header/);
+});
+
+test('a fixture is named by board and participant, from either probe env', () => {
+  assert.equal(fixtureName('cardputer-imu-probe-100hz', 'p2', 'shake-one-hand', 3), 'cardputer-p2-shake-one-hand-3.csv');
+  assert.equal(fixtureName('m5stickc-plus2-imu-probe', 'p4', 'shake-slow', 1), 'm5stickc-plus2-p4-shake-slow-1.csv');
+  assert.throws(() => fixtureName('cardputer', 'p2', 'shake-slow', 1), /not an IMU probe env/);
+  // The prefix a re-export clears names one participant on one board, and no one else.
+  const prefix = fixturePrefix('cardputer-imu-probe-100hz', 'p2');
+  assert.equal(prefix, 'cardputer-p2-');
+  assert.ok(!'cardputer-p21-shake-slow-1.csv'.startsWith(prefix));
+  assert.ok(!'m5stickc-plus2-p2-shake-slow-1.csv'.startsWith(prefix));
+  assert.ok(!'cardputer-shake-gentle-1.csv'.startsWith(prefix));
+});
+
+test('only a take at the device\'s 100 Hz becomes a fixture', () => {
+  assert.doesNotThrow(() => checkFixtureRate(100, 'p2/shake-slow-1'));
+  assert.throws(() => checkFixtureRate(800, 'p2/shake-slow-1'), /p2\/shake-slow-1 was recorded at 800 Hz/);
+});
+
+test('only the shakes the device would roll on are exported, and the operator\'s takes never are', () => {
+  // At 100 Hz a second is 100 samples, so 28 and 27 busy ones fall either side of the product's 0.275.
+  const PRODUCT_RATE_HZ = 100;
+  const busyFor = (count) => series(2 * PRODUCT_RATE_HZ, (i) => ({ az: i < count ? 3 : 1 }));
+  const takes = [
+    { participant: 'p2', gesture: 'shake-slow', kind: 'shake', take: 1, samples: busyFor(28) },
+    { participant: 'p2', gesture: 'shake-slow', kind: 'shake', take: 2, samples: busyFor(27) },
+    { participant: 'p2', gesture: 'walk', kind: 'handling', take: 1, samples: busyFor(100) },
+    { participant: null, gesture: 'shake-hard', kind: 'shake', take: 1, samples: busyFor(100) },
+  ];
+  const { detected, missed } = detectedShakes(takes, 'p2', PRODUCT_RATE_HZ);
+  assert.deepEqual(detected.map((t) => t.take), [1]);
+  assert.deepEqual(missed.map((t) => t.take), [2]);
 });

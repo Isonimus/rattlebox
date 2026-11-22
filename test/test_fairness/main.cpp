@@ -1,5 +1,9 @@
 #include <math.h>
 #include <unity.h>
+#include <algorithm>
+#include <cstdio>
+#include <filesystem>
+#include <string>
 #include <vector>
 #include "../../src/geometry/die_shape.h"
 #include "../../src/geometry/die_shape.cpp"
@@ -61,20 +65,30 @@ static const float TIME_LIMIT_S = 20.0f;
 // scored 11.0 and passed, and 0.5 mm only 28.8 against 20.5, too close to keep failing after a retune.
 static const float LOAD_MM = 0.25f;
 
-// The IMU probe's shake takes at the product's 100 Hz (ADR-0005), gentle and hard, from both
-// boards. PlatformIO runs the test from the project directory.
-static const char* const SHAKE_FILES[] = {
-    "test/fixtures/shakes/cardputer-shake-gentle-1.csv",      "test/fixtures/shakes/cardputer-shake-gentle-2.csv",
-    "test/fixtures/shakes/cardputer-shake-gentle-3.csv",      "test/fixtures/shakes/cardputer-shake-hard-1.csv",
-    "test/fixtures/shakes/cardputer-shake-hard-2.csv",        "test/fixtures/shakes/cardputer-shake-hard-3.csv",
-    "test/fixtures/shakes/m5stickc-plus2-shake-gentle-1.csv", "test/fixtures/shakes/m5stickc-plus2-shake-gentle-2.csv",
-    "test/fixtures/shakes/m5stickc-plus2-shake-gentle-3.csv", "test/fixtures/shakes/m5stickc-plus2-shake-hard-1.csv",
-    "test/fixtures/shakes/m5stickc-plus2-shake-hard-2.csv",   "test/fixtures/shakes/m5stickc-plus2-shake-hard-3.csv",
-};
+// The IMU probe's shake takes at the product's 100 Hz (ADR-0005), from both boards: the operator's
+// gentle and hard ones, and other people's (slice 0023). Every one in the directory is rolled on, so
+// a new take needs no second list to keep in step. PlatformIO runs the test from the project
+// directory.
+static const char* const SHAKES_DIR = "test/fixtures/shakes";
+
+/**
+ * @brief Every .csv in @p dir, in byte order of their names. A chained roll picks its take by index
+ * from the seeded source, so the order is part of the result and may not follow the file system's.
+ */
+static std::vector<std::string> shakeFiles(const std::filesystem::path& dir) {
+    std::vector<std::string> paths;
+    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".csv") paths.push_back(entry.path().generic_string());
+    }
+    std::sort(paths.begin(), paths.end());
+    return paths;
+}
 
 static std::vector<ShakeRecording> shakes() {
+    const std::vector<std::string> paths = shakeFiles(SHAKES_DIR);
+    TEST_ASSERT_FALSE_MESSAGE(paths.empty(), "no shake fixtures to roll on");
     std::vector<ShakeRecording> recordings;
-    for (const char* path : SHAKE_FILES) recordings.push_back(loadRecording(path));
+    for (const std::string& path : paths) recordings.push_back(loadRecording(path.c_str()));
     return recordings;
 }
 
@@ -158,6 +172,27 @@ void test_a_recording_must_move_forward_by_less_than_the_detector_window() {
     TEST_ASSERT_FALSE(continuesRecording(0, SHAKE_WINDOW_US));
 }
 
+void test_the_shakes_are_every_csv_in_the_directory_in_name_order() {
+    // A failed assertion jumps past the cleanup at the end, so a run starts by clearing what an
+    // earlier one left; only two runs of this test at once could collide on the fixed name.
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "rattlebox-test-shake-files";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "p2");
+    TEST_ASSERT_TRUE_MESSAGE(shakeFiles(dir).empty(), "an empty directory lists nothing, which shakes() refuses");
+    // Created out of order, beside a file and a directory that are not takes.
+    for (const char* name : {"m5stickc-plus2-shake-hard-1.csv", "cardputer-shake-hard-1.csv", "cardputer-p2-shake-twist-1.csv", "notes.md"}) {
+        FILE* file = fopen((dir / name).string().c_str(), "w");
+        TEST_ASSERT_NOT_NULL(file);
+        fclose(file);
+    }
+    const std::vector<std::string> paths = shakeFiles(dir);
+    TEST_ASSERT_EQUAL_size_t(3, paths.size());
+    TEST_ASSERT_EQUAL_STRING((dir / "cardputer-p2-shake-twist-1.csv").generic_string().c_str(), paths[0].c_str());
+    TEST_ASSERT_EQUAL_STRING((dir / "cardputer-shake-hard-1.csv").generic_string().c_str(), paths[1].c_str());
+    TEST_ASSERT_EQUAL_STRING((dir / "m5stickc-plus2-shake-hard-1.csv").generic_string().c_str(), paths[2].c_str());
+    std::filesystem::remove_all(dir);
+}
+
 void test_one_d20_at_a_time_is_fair() { assertFair(makeD20(D20_EDGE_MM), 1, D20_RESULTS, CRITICAL_D20); }
 void test_one_d6_at_a_time_is_fair() { assertFair(makeD6(D6_EDGE_MM), 1, D6_RESULTS, CRITICAL_D6); }
 void test_three_d20s_at_a_time_are_fair() { assertFair(makeD20(D20_EDGE_MM), MAX_DICE, D20_RESULTS, CRITICAL_D20); }
@@ -201,6 +236,7 @@ int main() {
     RUN_TEST(test_the_chi_square_statistic_matches_a_worked_example);
     RUN_TEST(test_the_repeat_z_matches_a_worked_example);
     RUN_TEST(test_a_recording_must_move_forward_by_less_than_the_detector_window);
+    RUN_TEST(test_the_shakes_are_every_csv_in_the_directory_in_name_order);
     RUN_TEST(test_one_d20_at_a_time_is_fair);
     RUN_TEST(test_one_d6_at_a_time_is_fair);
     RUN_TEST(test_one_d20_launched_from_rest_is_fair);

@@ -2,7 +2,7 @@
 id: '0005'
 title: "IMU at ±16 g, ±2000 °/s and 100 Hz on both boards; a shake is detected by how long the motion lasts, not how large it is"
 type: architecture
-status: accepted
+status: amended
 date: 2026-10-23
 supersedes: []
 superseded_by: []
@@ -70,6 +70,10 @@ capture rate and 100 Hz (StickC 0.39 / 0.09 to 0.41 / 0.09; Cardputer 0.33 / 0.1
   1 s of samples are more than **0.5 g** off 1 g. 0.23 is the midpoint between the worst shake
   (0.30) and the worst handling (0.16) measured with the chips at 100 Hz, leaving 0.07 on each
   side.
+
+  *Amended 2026-11-22 by ADR-0024: over three people's takes, other people's pick-ups and
+  set-downs reached 0.27, so the threshold is 0.275; a brisk walk cannot be told from a gentle
+  shake, and a slow rocking shake is not a roll.*
 - **Timing derived from IMU samples uses their timestamps, never the nominal rate**, which on
   the BMI270 is 1.1% off.
 

@@ -52,7 +52,9 @@ other; tilt it and they slide; let them settle and the face each one lies on is 
 - **Shake to roll.** A shake throws every die and spins it to a random orientation drawn from the
   chip's hardware random number generator, so the result does not depend on the face it showed
   before (ADR-0010). A shake is told from handling the device by how long the motion lasts, not
-  how hard it is (ADR-0005).
+  how hard it is (ADR-0005): shake it briskly for about a second. A slow, rocking shake may not
+  roll, and walking briskly with the device in your hand can start a roll, since its motion
+  measures like a gentle shake (ADR-0024).
 - **Tilt to slide.** The device's own motion is the tray's gravity, so tipping it slides the dice
   toward the low side.
 - **Hold it at any angle.** People hold the device tilted toward their face, so the angle it is

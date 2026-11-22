@@ -11,7 +11,9 @@ The first release: a dice tray for the M5Stack Cardputer ADV and the M5StickC Pl
 
 - **Shake to roll.** A shake throws every die and spins it to a random orientation from the chip's
   hardware random number generator, so a result does not depend on the face it showed before. A
-  shake is told from handling the device by how long the motion lasts.
+  shake is told from handling the device by how long the motion lasts, with a threshold measured
+  on three people's shakes and handling, so picking the device up or setting it down does not
+  roll. Known limits: walking briskly with it can start a roll, and a slow, rocking shake may not.
 - **Tilt to slide.** The device's own motion is the tray's gravity, and whatever angle you hold it
   still at counts as level.
 - **Fair results.** A die's result locks the first time it comes to rest lying flat and never

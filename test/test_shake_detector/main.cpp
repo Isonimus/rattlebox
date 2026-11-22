@@ -52,17 +52,18 @@ void test_nothing_is_a_shake_until_a_whole_second_has_been_seen() {
 }
 
 void test_the_busy_share_must_exceed_the_threshold() {
-    // 23 of the 100 samples in the last second is ADR-0005's 0.23 exactly, not over it. The 101st
-    // sample, a still one, evicts the first, which a whole-second window must first see.
-    ShakeDetector atThreshold;
-    feedSecond(atThreshold, 24);
-    atThreshold.add(sampleAt(SAMPLES_PER_SECOND_100HZ * PERIOD_100HZ_US, STILL));
-    TEST_ASSERT_FALSE(atThreshold.shaking());
+    // ADR-0024's 0.275 between the busiest handling (27 of 100 samples, a set-down) and the gentlest
+    // shake (28 of 100). The 101st sample, a still one, evicts the first, which a whole-second
+    // window must first see, leaving one busy sample fewer than fed.
+    ShakeDetector busiestHandling;
+    feedSecond(busiestHandling, 28);
+    busiestHandling.add(sampleAt(SAMPLES_PER_SECOND_100HZ * PERIOD_100HZ_US, STILL));
+    TEST_ASSERT_FALSE(busiestHandling.shaking());
 
-    ShakeDetector overThreshold;
-    feedSecond(overThreshold, 25);
-    overThreshold.add(sampleAt(SAMPLES_PER_SECOND_100HZ * PERIOD_100HZ_US, STILL));
-    TEST_ASSERT_TRUE(overThreshold.shaking());
+    ShakeDetector gentlestShake;
+    feedSecond(gentlestShake, 29);
+    gentlestShake.add(sampleAt(SAMPLES_PER_SECOND_100HZ * PERIOD_100HZ_US, STILL));
+    TEST_ASSERT_TRUE(gentlestShake.shaking());
 }
 
 void test_busy_means_over_half_a_g_off_one_g_either_way() {

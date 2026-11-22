@@ -6,17 +6,21 @@
 // recording each take with scripts/capture_imu.py, then analyses every take on disk:
 // per take, the peak |a|, saturated samples and peak |w|; per candidate rate and detector
 // feature, the worst shake, the worst handling gesture and the margin between them.
-// Writes artifacts/imu-probe/<env>/: one CSV per take, summary.json and summary.md.
+// Writes artifacts/imu-probe/<env>/: one CSV per take, summary.json and summary.md. Other
+// people's takes go in a subdirectory per participant, and the analysis pools everyone's
+// (slice 0023).
 //
 // Usage: node scripts/imu-probe.mjs --env cardputer-imu-probe --port /dev/ttyACM0
 //          [--gestures shake-hard,bump]   record only these (again), keeping the other takes
+//          [--participant p2]             record someone else, with the participant protocol
 //          [--analyse-only]               record nothing, analyse the takes already on disk
+//          [--export-fixtures]            with --participant, copy their shakes into the fixtures
 // Flash the probe first: pio run -e <env> -t upload
 //
 // Everything above main() is pure and tested by scripts/imu-probe.test.mjs.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -34,7 +38,28 @@ export const GESTURES = [
   { name: 'bump', kind: 'handling', instruction: 'Hold it; after Enter, knock it once against the desk edge, as if by accident.' },
   { name: 'shake-gentle', kind: 'shake', instruction: 'After Enter, give it the softest shake you would still mean as a roll.' },
   { name: 'shake-hard', kind: 'shake', instruction: 'After Enter, shake it hard, like a dice cup.' },
+  // Shakes unlike the operator's own, which the fairness test had never seen (slice 0023).
+  { name: 'shake-slow', kind: 'shake', instruction: 'After Enter, roll it with a slow, rocking shake, as slow as you would still mean as a roll.' },
+  { name: 'shake-twist', kind: 'shake', instruction: 'After Enter, shake it by turning your wrist back and forth, not by moving your arm.' },
+  { name: 'shake-one-hand', kind: 'shake', instruction: 'After Enter, shake it with one hand only, the other hand away from it.' },
 ];
+
+// The operator's protocol of 2026-10-23, which ADR-0005's numbers rest on.
+export const OPERATOR_PROTOCOL = ['rest', 'hold', 'pickup', 'setdown', 'walk', 'tilt', 'bump', 'shake-gentle', 'shake-hard'];
+// Someone else's: the handling that came nearest the threshold at 100 Hz (slice 0004 confirmed
+// those at the real rate) and every shake. rest, hold and tilt stayed near zero, far from it.
+export const PARTICIPANT_PROTOCOL = ['pickup', 'setdown', 'walk', 'bump', 'shake-gentle', 'shake-hard', 'shake-slow', 'shake-twist', 'shake-one-hand'];
+// An anonymous id, never a name: a participant's takes become fixture files in a public
+// repository, and a pattern is checked where a promise to be careful is not.
+export const PARTICIPANT_ID = /^p\d+$/;
+// The device reads the IMU at 100 Hz (ADR-0005), so a fixture replayed as its motion must be too.
+export const FIXTURE_RATE_HZ = 100;
+// The product detector's threshold, SHAKE_BUSY_SHARE in src/imu/shake_detector.h (ADR-0024). Only
+// a shake the device detects makes a roll, so only those can test the rolls' fairness; the
+// fairness test fails on a fixture the C++ detector misses, which catches the two drifting apart.
+export const DETECTOR_BUSY_SHARE = 0.275;
+// The columns the fairness replay reads (src/probes/fairness/shaken_roll.cpp).
+const FIXTURE_COLUMNS = 4;
 
 // Rates a lower product setting could run at. A candidate is simulated only when it
 // divides the capture rate, which keeps it a rate the same chip offers: the BMI270's are
@@ -67,6 +92,7 @@ export const FEATURES = {
 const AXES = ['ax', 'ay', 'az', 'gx', 'gy', 'gz'];
 const CSV_COLUMNS = ['t_us', ...AXES, 'accel_saturated', 'gyro_saturated'];
 const TAKE_FILE = /^([a-z-]+)-(\d+)\.csv$/;
+const ENV_SUFFIX = /-imu-probe(-100hz)?$/;
 
 /** One take as capture_imu.py writes it. */
 export function parseCaptureCsv(text) {
@@ -80,6 +106,39 @@ export function parseCaptureCsv(text) {
     return { t, ax, ay, az, gx, gy, gz, accelSaturated: accelSaturated === 1, gyroSaturated: gyroSaturated === 1 };
   });
 }
+
+/** A take as a fixture: its capture CSV cut to t_us,ax,ay,az, the values' text kept as captured. */
+export function fixtureCsv(captureCsvText) {
+  parseCaptureCsv(captureCsvText);
+  const lines = captureCsvText.trim().split(/\r?\n/);
+  return `${lines.map((line) => line.split(',').slice(0, FIXTURE_COLUMNS).join(',')).join('\n')}\n`;
+}
+
+/** What every fixture of one participant on one board starts with, e.g. cardputer-p2-. */
+export function fixturePrefix(env, participant) {
+  if (!ENV_SUFFIX.test(env)) throw new Error(`${env} is not an IMU probe env`);
+  return `${env.replace(ENV_SUFFIX, '')}-${participant}-`;
+}
+
+/** Where a participant's take lands among the fixtures, e.g. cardputer-p2-shake-slow-1.csv. */
+export function fixtureName(env, participant, gesture, take) {
+  return `${fixturePrefix(env, participant)}${gesture}-${take}.csv`;
+}
+
+/** Refuses a take the fairness test could not replay as the device's motion. */
+export function checkFixtureRate(rateHz, label) {
+  if (rateHz !== FIXTURE_RATE_HZ) throw new Error(`${label} was recorded at ${rateHz} Hz; fixtures are at ${FIXTURE_RATE_HZ} Hz, so record with a -100hz env`);
+}
+
+/** The shakes a participant gave that the device would roll on, and those it would not. */
+export function detectedShakes(takes, participant, captureRateHz) {
+  const shakes = takes.filter((t) => t.participant === participant && t.kind === 'shake');
+  const detected = (t) => features(t.samples, captureRateHz).busyShare > DETECTOR_BUSY_SHARE;
+  return { detected: shakes.filter(detected), missed: shakes.filter((t) => !detected(t)) };
+}
+
+/** A take's name in tables: whose it was, when it was not the operator's. */
+export const takeLabel = (t) => `${t.participant ? `${t.participant}/` : ''}${t.gesture}-${t.take}`;
 
 export const accelMagnitude = (s) => Math.hypot(s.ax, s.ay, s.az);
 export const gyroMagnitude = (s) => Math.hypot(s.gx, s.gy, s.gz);
@@ -175,7 +234,7 @@ export function separation(takes, captureRateHz) {
     const measured = takes.map((t) => ({ ...t, features: features(decimate(t.samples, factor), rateHz) }));
     const byFeature = Object.fromEntries(Object.keys(FEATURES).map((feature) => {
       const extreme = (kind, pick) => measured.filter((t) => t.kind === kind)
-        .reduce((best, t) => (best === null || pick(t.features[feature], best.value) ? { value: t.features[feature], take: `${t.gesture}-${t.take}` } : best), null);
+        .reduce((best, t) => (best === null || pick(t.features[feature], best.value) ? { value: t.features[feature], take: takeLabel(t) } : best), null);
       const worstShake = extreme('shake', (a, b) => a < b);
       const worstHandling = extreme('handling', (a, b) => a > b);
       const margin = worstShake.value - worstHandling.value;
@@ -185,17 +244,28 @@ export function separation(takes, captureRateHz) {
   });
 }
 
+/** Each take with its busy share at the capture rate, so a take near the threshold shows. */
+export function takeRows(takes, captureRateHz) {
+  return takes.map((t) => ({ take: takeLabel(t), ...describeTake(t.samples), busyShare: features(t.samples, captureRateHz).busyShare }));
+}
+
 export function parseArgs(argv) {
-  const args = { env: null, port: null, gestures: null, analyseOnly: false };
+  const args = { env: null, port: null, gestures: null, participant: null, analyseOnly: false, exportFixtures: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--env') args.env = argv[++i] ?? null;
     else if (argv[i] === '--port') args.port = argv[++i] ?? null;
     else if (argv[i] === '--gestures') args.gestures = (argv[++i] ?? '').split(',').filter(Boolean);
+    else if (argv[i] === '--participant') args.participant = argv[++i] ?? '';
     else if (argv[i] === '--analyse-only') args.analyseOnly = true;
+    else if (argv[i] === '--export-fixtures') args.exportFixtures = true;
     else throw new Error(`unknown argument ${argv[i]}`);
   }
   if (!ENVS.includes(args.env)) throw new Error(`--env must be one of ${ENVS.join(', ')}`);
   if (!args.analyseOnly && !args.port) throw new Error('--port is required, e.g. --port /dev/ttyACM0');
+  if (args.participant !== null && !PARTICIPANT_ID.test(args.participant)) {
+    throw new Error(`--participant must be p followed by digits (p2, p3...), never a name: the takes become public fixtures`);
+  }
+  if (args.exportFixtures && args.participant === null) throw new Error('--export-fixtures needs --participant: only participants\' takes are exported');
   const unknown = (args.gestures ?? []).filter((name) => !GESTURES.some((g) => g.name === name));
   if (unknown.length > 0) throw new Error(`unknown gesture(s) ${unknown.join(', ')}; the protocol has ${GESTURES.map((g) => g.name).join(', ')}`);
   return args;
@@ -203,11 +273,12 @@ export function parseArgs(argv) {
 
 // ---------------------------------------------------------------- recording and reporting
 
+const FIXTURES_DIR = join('test', 'fixtures', 'shakes');
 const takePath = (outDir, gesture, take) => join(outDir, `${gesture}-${take}.csv`);
 // capture_imu.py's summary of a take, kept beside its CSV for the rate the board declared.
 const capturePath = (csvPath) => csvPath.replace(/\.csv$/, '.json');
 
-async function record(port, outDir, gestures) {
+async function record(port, outDir, gestures, protocol) {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (question) => new Promise((resolve) => prompt.question(`\n${question}\n  press Enter on this computer when ready `, resolve));
   // readline swallows Ctrl+C in raw mode, which would leave the run hanging; abort instead.
@@ -221,7 +292,7 @@ async function record(port, outDir, gestures) {
         const path = takePath(outDir, gesture.name, take);
         // Named gestures are recorded again; otherwise a rerun picks up where an
         // interrupted one stopped.
-        const wanted = gestures === null ? !existsSync(path) : gestures.includes(gesture.name);
+        const wanted = gestures === null ? protocol.includes(gesture.name) && !existsSync(path) : gestures.includes(gesture.name);
         if (!wanted) continue;
         await ask(`${gesture.name}, take ${take} of ${TAKES_PER_GESTURE}: ${gesture.instruction}`);
         console.log('  recording now, then sending...');
@@ -236,15 +307,43 @@ async function record(port, outDir, gestures) {
   }
 }
 
-function loadTakes(outDir) {
-  return readdirSync(outDir).flatMap((file) => {
+/** The takes in one directory, each marked with whose it was (null for the operator's). */
+function loadTakesIn(dir, participant) {
+  return readdirSync(dir).flatMap((file) => {
     const match = TAKE_FILE.exec(file);
     const gesture = match && GESTURES.find((g) => g.name === match[1]);
     if (!gesture) return [];
-    const path = join(outDir, file);
+    const path = join(dir, file);
     const { rateHz } = JSON.parse(readFileSync(capturePath(path), 'utf8'));
-    return [{ gesture: gesture.name, kind: gesture.kind, take: Number(match[2]), rateHz, samples: parseCaptureCsv(readFileSync(path, 'utf8')) }];
+    return [{ participant, gesture: gesture.name, kind: gesture.kind, take: Number(match[2]), rateHz, path, samples: parseCaptureCsv(readFileSync(path, 'utf8')) }];
   });
+}
+
+/** The operator's takes and every participant's, pooled. */
+function loadTakes(envDir) {
+  const participants = readdirSync(envDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && PARTICIPANT_ID.test(entry.name)).map((entry) => entry.name);
+  return [...loadTakesIn(envDir, null), ...participants.flatMap((participant) => loadTakesIn(join(envDir, participant), participant))];
+}
+
+function exportFixtures(env, participant, takes, captureRateHz) {
+  const { detected: shakes, missed } = detectedShakes(takes, participant, captureRateHz);
+  for (const t of missed) console.log(`  not exported: ${takeLabel(t)}, which the detector misses`);
+  if (shakes.length === 0) throw new Error(`no shake takes from ${participant} the detector would roll on`);
+  // Every take is checked before any is written, so a refusal leaves the fixtures as they were.
+  for (const t of shakes) checkFixtureRate(t.rateHz, takeLabel(t));
+  // The export replaces this participant's set on this board: a take re-recorded under the
+  // threshold would otherwise leave its old fixture behind, rolled on though no capture backs it.
+  const prefix = fixturePrefix(env, participant);
+  for (const file of readdirSync(FIXTURES_DIR).filter((name) => name.startsWith(prefix))) {
+    rmSync(join(FIXTURES_DIR, file));
+    console.log(`  removed ${join(FIXTURES_DIR, file)}`);
+  }
+  for (const t of shakes) {
+    const path = join(FIXTURES_DIR, fixtureName(env, participant, t.gesture, t.take));
+    writeFileSync(path, fixtureCsv(readFileSync(t.path, 'utf8')));
+    console.log(`  exported ${path}`);
+  }
 }
 
 /** The rate the board declared for every take: a mixed set cannot be decimated alike. */
@@ -258,9 +357,9 @@ const fixed = (value, digits) => (value === null ? '-' : value.toFixed(digits));
 
 function markdownSummary(env, captureRateHz, perTake, rates) {
   const lines = [`# IMU probe: ${env}`, '', `Capture rate ${captureRateHz} Hz.`, '', '## Takes', '',
-    '| Take | Samples | Measured rate (Hz) | Peak \\|a\\| (g) | Accel saturated | Peak \\|w\\| (dps) | Gyro saturated |', '|---|---|---|---|---|---|---|'];
+    '| Take | Samples | Measured rate (Hz) | Peak \\|a\\| (g) | Accel saturated | Peak \\|w\\| (dps) | Gyro saturated | Busy share |', '|---|---|---|---|---|---|---|---|'];
   for (const t of perTake) {
-    lines.push(`| ${t.take} | ${t.samples} | ${fixed(t.measuredRateHz, 1)} | ${fixed(t.peakAccelG, 2)} | ${t.accelSaturatedSamples} | ${fixed(t.peakGyroDps, 0)} | ${t.gyroSaturatedSamples} |`);
+    lines.push(`| ${t.take} | ${t.samples} | ${fixed(t.measuredRateHz, 1)} | ${fixed(t.peakAccelG, 2)} | ${t.accelSaturatedSamples} | ${fixed(t.peakGyroDps, 0)} | ${t.gyroSaturatedSamples} | ${fixed(t.busyShare, 3)} |`);
   }
   lines.push('', '## Separation', '', '| Rate (Hz) | Feature | Worst shake | Worst handling | Margin | Threshold |', '|---|---|---|---|---|---|');
   for (const { rateHz, features: byFeature } of rates) {
@@ -272,19 +371,22 @@ function markdownSummary(env, captureRateHz, perTake, rates) {
 }
 
 async function main() {
-  const { env, port, gestures, analyseOnly } = parseArgs(process.argv.slice(2));
-  const outDir = join('artifacts', 'imu-probe', env);
+  const { env, port, gestures, participant, analyseOnly, exportFixtures: exporting } = parseArgs(process.argv.slice(2));
+  const envDir = join('artifacts', 'imu-probe', env);
+  const outDir = participant === null ? envDir : join(envDir, participant);
   mkdirSync(outDir, { recursive: true });
-  if (!analyseOnly) await record(port, outDir, gestures);
+  if (!analyseOnly) await record(port, outDir, gestures, participant === null ? OPERATOR_PROTOCOL : PARTICIPANT_PROTOCOL);
 
-  const takes = loadTakes(outDir).sort((a, b) => a.gesture.localeCompare(b.gesture) || a.take - b.take);
+  const takes = loadTakes(envDir)
+    .sort((a, b) => (a.participant ?? '').localeCompare(b.participant ?? '') || a.gesture.localeCompare(b.gesture) || a.take - b.take);
   const captureRateHz = captureRateOf(takes);
-  const perTake = takes.map((t) => ({ take: `${t.gesture}-${t.take}`, ...describeTake(t.samples) }));
+  if (exporting) exportFixtures(env, participant, takes, captureRateHz);
+  const perTake = takeRows(takes, captureRateHz);
   const rates = separation(takes, captureRateHz);
-  writeFileSync(join(outDir, 'summary.json'), `${JSON.stringify({ env, captureRateHz, takes: perTake, separation: rates }, null, 2)}\n`);
+  writeFileSync(join(envDir, 'summary.json'), `${JSON.stringify({ env, captureRateHz, takes: perTake, separation: rates }, null, 2)}\n`);
   const markdown = markdownSummary(env, captureRateHz, perTake, rates);
-  writeFileSync(join(outDir, 'summary.md'), markdown);
-  console.log(`\n${markdown}\nArtifacts in ${outDir}`);
+  writeFileSync(join(envDir, 'summary.md'), markdown);
+  console.log(`\n${markdown}\nArtifacts in ${envDir}`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

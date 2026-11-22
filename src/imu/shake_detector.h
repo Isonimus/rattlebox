@@ -7,8 +7,11 @@
 // ADR-0005: a shake is told from handling by how long the motion lasts, not how large it is.
 constexpr float SHAKE_BUSY_DEVIATION_G = 0.5f;
 constexpr uint32_t SHAKE_WINDOW_US = 1000000;
-// The midpoint between the worst shake (0.30) and the worst handling (0.16) measured at 100 Hz.
-constexpr float SHAKE_BUSY_SHARE = 0.23f;
+// Between the busiest handling (0.27, a set-down) and the gentlest shake (0.28) over three people's
+// takes at 100 Hz (ADR-0024), which put ADR-0005's 0.23 under other people's pick-ups. A margin of
+// one sample in a hundred each side: raising it misses gentle shakes, lowering it rolls on pick-ups.
+// A brisk walk out-measures a gentle shake on every feature tried, so walking still rolls.
+constexpr float SHAKE_BUSY_SHARE = 0.275f;
 // 1 s at ADR-0005's 100 Hz is 100 samples, and the chips were measured up to 1.1% fast. A window
 // holding more than this means the IMU runs far faster than configured, which is a fault.
 constexpr uint8_t SHAKE_WINDOW_CAPACITY = 128;

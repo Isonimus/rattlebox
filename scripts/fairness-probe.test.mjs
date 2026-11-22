@@ -2,11 +2,12 @@
 // probe program prints them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 
 import {
-  ALL_TAKES, CHAINS, FACES, PRODUCT_KICK, REPLAYS, REPLAY_TRIALS, TALLY_SEEDS, TALLY_SIZES, TRACES, checkRuns, chiSquarePValue,
-  chiSquareStatistic, parseProbeLine, poolReplays, repeatPValue, runAll, shakeMarkdown, summarizeChain, summarizeTally,
-  summarizeTraces, summaryMarkdown, tiltGap,
+  ALL_TAKES, CHAINS, FACES, GENTLE_TAKES, HARD_TAKES, PRODUCT_KICK, REPLAYS, REPLAY_TRIALS, TALLY_SEEDS, TALLY_SIZES, TRACES, checkRuns,
+  chiSquarePValue, chiSquareStatistic, gesture, parseProbeLine, participantTakes, poolReplays, repeatPValue, runAll, shakeMarkdown,
+  summarizeChain, summarizeTally, summarizeTraces, summaryMarkdown, tiltGap,
 } from './fairness-probe.mjs';
 
 const GRID = '[trace-grid] linear=1,5 angular=0.1,0.5';
@@ -207,9 +208,10 @@ test('a throw chain that repeats far above chance is reported, not failed', () =
 });
 
 test('product replays pooled over their takes fail when they keep the previous face', () => {
-  const planned = REPLAYS.filter((r) => r.kick === PRODUCT_KICK && r.die === 'D6' && r.cut === 0);
+  // Every gentle take, the operator's and the participants': they pool together as one kind.
+  const planned = REPLAYS.filter((r) => r.kick === PRODUCT_KICK && r.die === 'D6' && r.cut === 0 && gesture(r.file) === 'gentle');
   let run = completeRun();
-  // 20% on every take: 1800 of 9000 pooled, about 8.5 standard errors over chance.
+  // 20% on every take, over 3 points above chance: far past 0.001 even for one take of 1500.
   for (const take of planned) {
     run = replacing(run, (e) => e.kind === 'replay' && e.die === take.die && e.kick === take.kick && e.file === take.file && e.extraS === take.cut, replay(take, 300));
   }
@@ -252,6 +254,35 @@ test('each take of a pooled replay rolls from its own seed', () => {
   const onFirstSeed = run.map((e) => (isTake(e) ? { ...e, seed: pooled[0].seed } : e));
   assert.equal(checkRuns(onFirstSeed).length, 1);
   assert.equal(ALL_TAKES.indexOf(take.file), take.seed - 1);
+});
+
+test('participants\' takes come after the operator\'s twelve, whose seeds stay as they were', () => {
+  const files = ['m5stickc-plus2-p3-shake-twist-2.csv', 'cardputer-shake-gentle-1.csv', 'cardputer-p2-shake-one-hand-1.csv', 'notes.md', 'cardputer-p2-walk-1.csv'];
+  assert.deepEqual(participantTakes(files), [
+    join('test', 'fixtures', 'shakes', 'cardputer-p2-shake-one-hand-1.csv'),
+    join('test', 'fixtures', 'shakes', 'm5stickc-plus2-p3-shake-twist-2.csv'),
+  ]);
+  // ADR-0010's numbers were drawn with these seeds: the gentle takes 1-6 and the hard 7-12.
+  assert.deepEqual(ALL_TAKES.slice(0, 12), [...GENTLE_TAKES, ...HARD_TAKES]);
+  assert.equal(GENTLE_TAKES[0], join('test', 'fixtures', 'shakes', 'cardputer-shake-gentle-1.csv'));
+  assert.equal(HARD_TAKES[5], join('test', 'fixtures', 'shakes', 'm5stickc-plus2-shake-hard-3.csv'));
+});
+
+test('a take\'s kind of shake reads from its name, hyphens included', () => {
+  assert.equal(gesture(join('test', 'fixtures', 'shakes', 'cardputer-shake-gentle-2.csv')), 'gentle');
+  assert.equal(gesture(join('test', 'fixtures', 'shakes', 'cardputer-p2-shake-one-hand-1.csv')), 'one-hand');
+  assert.equal(gesture(join('test', 'fixtures', 'shakes', 'm5stickc-plus2-p3-shake-twist-2.csv')), 'twist');
+});
+
+test('every participant take is replayed with the product\'s kick at detection, on both dice', () => {
+  const participants = ALL_TAKES.slice(12);
+  for (const file of participants) {
+    for (const die of ['D6', 'D20']) {
+      assert.ok(REPLAYS.some((r) => r.file === file && r.die === die && r.kick === PRODUCT_KICK && r.cut === 0), `${die} ${file}`);
+    }
+  }
+  // Only the product's kick: the kick comparison stays on the operator's takes.
+  assert.ok(REPLAYS.filter((r) => participants.includes(r.file)).every((r) => r.kick === PRODUCT_KICK));
 });
 
 test('the first failed run stops new runs from starting', async () => {

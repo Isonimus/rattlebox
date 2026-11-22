@@ -17,7 +17,7 @@
 // Everything above main() is pure and tested by scripts/fairness-probe.test.mjs.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -49,7 +49,16 @@ function takes(gesture) {
 }
 export const GENTLE_TAKES = takes('gentle');
 export const HARD_TAKES = takes('hard');
-export const ALL_TAKES = [...GENTLE_TAKES, ...HARD_TAKES];
+// Other people's takes, as the IMU probe exports them: <board>-p<N>-shake-<kind>-<n>.csv (slice 0023).
+const PARTICIPANT_TAKE = /^[a-z0-9-]+-p\d+-shake-[a-z-]+-\d+\.csv$/;
+/** The participants' takes among @p files, in name order. */
+export function participantTakes(files) {
+  return files.filter((file) => PARTICIPANT_TAKE.test(file)).sort().map((file) => join(SHAKES_DIR, file));
+}
+export const PARTICIPANT_TAKES = participantTakes(readdirSync(SHAKES_DIR));
+// The operator's twelve first, in the order ADR-0010's seeds were drawn in, so adding a
+// participant's takes leaves those numbers reproducible.
+export const ALL_TAKES = [...GENTLE_TAKES, ...HARD_TAKES, ...PARTICIPANT_TAKES];
 
 // What the product does at detection (ADR-0010): a throw, and a 0.1 s spin to a uniformly random
 // orientation. Only its runs can fail the probe; the other kicks are the evidence for choosing it.
@@ -77,6 +86,9 @@ export const REPLAYS = [
   ...replays(['D6'], ['spin=0.05', 'spin=0.2', 'spin=0.4'], GENTLE_TAKES, [0]),
   // Hard shakes, with no kick at all.
   ...replays(['D6', 'D20'], ['none'], HARD_TAKES, [0]),
+  // Other people's shakes with the product's kick, cut where a shake has stirred least: a kind of
+  // shake the spin does not randomize shows as a pool with too many repeats (slice 0023).
+  ...replays(['D6', 'D20'], [PRODUCT_KICK], PARTICIPANT_TAKES, [0]),
 ];
 
 // Rolls one after another, each starting where the last ended, on a random take cut at a random
@@ -323,8 +335,9 @@ export function summarizeChain(chain) {
   };
 }
 
-function gesture(file) {
-  return /-shake-(\w+)-\d+\.csv$/.exec(file)?.[1] ?? basename(file);
+/** The kind of shake a take is, from its file name: gentle, hard, one-hand... */
+export function gesture(file) {
+  return /-shake-([a-z-]+)-\d+\.csv$/.exec(file)?.[1] ?? basename(file);
 }
 
 /** Replays pooled over their takes: one entry per die, gesture, kick and cut, in run order. */

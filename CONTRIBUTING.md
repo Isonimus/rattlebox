@@ -31,8 +31,8 @@ are written for AI-assisted work, but they apply to everyone. In short:
   `cardputer` and `m5stickc-plus2`.
 - **Logic has a test.** Host tests live in `test/` (Unity, `pio test -e native`). A regression test
   fails before the fix and passes after.
-- **Fairness is measured.** A change to the physics, the throw, the spin, the shake detector or the
-  tray's gravity runs `npm run test:fairness` (three dice at a time) as well as `npm test`.
+- **Fairness is measured.** A change to the physics, the throw, the spin, the shake detector, the
+  tray's gravity or the shake fixtures runs `npm run test:fairness` (three dice at a time) as well as `npm test`.
 - **What a person sees is checked on a board.** Rendering, physics and timing cannot be asserted in
   a unit test; the `npm run verify:*` checks drive a flashed board over USB serial and save screen
   captures. Say which board and which check you ran.
@@ -43,6 +43,27 @@ are written for AI-assisted work, but they apply to everyone. In short:
 CI runs the host tests, the three-dice fairness test, both firmware builds with a warnings gate,
 cppcheck, CodeQL and the decision-record checks on every pull request, and a pull request needs it
 green.
+
+## Contributing your shakes
+
+If you have one of the boards, the most useful thing you can give the project is about 25 minutes
+of your hands. The shake detector's threshold and the fairness test both rest on recorded shakes,
+and every recording so far is one person's. Flash the 100 Hz IMU probe and let the script walk you
+through nine gestures, three times each:
+
+```bash
+pio run -e cardputer-imu-probe-100hz -t upload        # or m5stickc-plus2-imu-probe-100hz
+node scripts/imu-probe.mjs --env cardputer-imu-probe-100hz --port /dev/ttyACM0 --participant p2
+```
+
+The participant id is `p` and a number, never a name: your shakes become files in this public
+repository. Ask in an issue for the next free number. The takes are saved under
+`artifacts/imu-probe/<env>/p<N>/`; attach that folder to the issue, or export your shakes as
+fixtures and open a pull request:
+
+```bash
+node scripts/imu-probe.mjs --env cardputer-imu-probe-100hz --analyse-only --participant p2 --export-fixtures
+```
 
 ## Commits and pull requests
 
