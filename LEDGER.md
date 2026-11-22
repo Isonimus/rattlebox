@@ -19,7 +19,6 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 <!-- One line per open item. Delete the line to close it; the git log is the done-record. -->
 - [deferred] No CI builds both envs yet, so invariant #1 holds by review alone (ADR-0001)
 - [deferred] No binary release exists yet; the first one must meet the binary-distribution conditions in `docs/third-party-notices.md` (Bosch and LovyanGFX notices bundled, LGPL relinking for the Arduino core) (ADR-0001)
-- [audit] The `m5stickc-plus2` env builds for the generic `esp32dev` variant; its flash size and PSRAM settings were never compared with the Plus 2's, only shown to boot and run the skeleton (ADR-0003)
 - [deferred] The tray's gravity leaves out the rotating frame's centrifugal, Euler and Coriolis terms from the gyro; adding them would stir the dice more, so the fairness test reruns if they are (ADR-0010)
 - [deferred] The three-dice fairness test (`npm run test:fairness`, 85 s on an idle machine on 2026-11-22) runs only by hand before a physics or input change merges; no CI runs it, so invariant #2's three-dice half holds by review (ADR-0010)
 - [audit] The fairness test's shakes are twelve takes from one operator on one day; record other people's shakes (slower, rotational, one-handed) and rerun the probe's shake sweep before a release (ADR-0010)
