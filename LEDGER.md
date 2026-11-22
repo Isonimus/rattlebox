@@ -26,7 +26,6 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 - [audit] The fairness test's shakes are twelve takes from one operator on one day; record other people's shakes (slower, rotational, one-handed) and rerun the probe's shake sweep before a release (ADR-0010)
 - [audit] The shake detector's margin (0.07 each side) rests on 3 takes per gesture from one operator; re-run `scripts/imu-probe.mjs` with other people's shakes and handling before relying on it in a release (ADR-0005)
 - [audit] One of 40 Cardputer product boots at ADR-0005's settings, after the `delayAtLeastMs` fix, showed no `[boot] imu OK` line within 5 s on 2026-10-23; its log was not kept, so an IMU failure and a monitor that missed the line after USB re-enumeration are both open (ADR-0005)
-- [bug] Once every die locks, `ShakeRoll` takes the level from the latest still span, however old: if the hand never holds within 0.1 g for 0.25 s between the shake and the last lock, the level snaps back to the hold before the shake and the resting dice slide. It never happened in 120 replayed upright rolls (dice lock 1.9 s after detection on average, and the jump at lock was at most 8.1 deg, median 2.6 deg, against the 24 deg recline); a fix would take only a still span found since the roll took off (ADR-0014)
 - [deferred] On-device checks (`*-verify.mjs` device halves) need a board on the port and no hardware-in-the-loop runner exists, so CI runs only their parsing tests (ADR-0003)
 
 ## Resolved

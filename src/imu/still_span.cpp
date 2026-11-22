@@ -34,6 +34,8 @@ void StillSpan::add(const ImuSample& sample) {
     _found = true;
 }
 
+void StillSpan::forget() { _found = false; }
+
 Vec3 StillSpan::latestMeanG() const {
     // Before any still span there is no level to give, and a made-up one would tilt the tray.
     if (!_found) abort();

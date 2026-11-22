@@ -46,7 +46,8 @@ constexpr KickPlan PRODUCT_KICK{ShakeKick::Spin, REORIENTATION_S};
  * The device, the fairness test and the fairness probe all roll through this class, so invariant
  * #2 tests the code the device runs.
  *
- * Level is the latest still span's reading while every die is locked. While a roll is in flight it
+ * Level is the reading of the latest still span since the dice locked while every die is locked,
+ * and the level the roll ended on until there is one (slice 0018). While a roll is in flight it
  * follows the reading averaged over 0.1 s (ADR-0014), so the angle a hand settles into to read the
  * result is level by the time the dice lie still. Until the first still span, the tray stays level.
  */
@@ -84,6 +85,8 @@ private:
     Quaternion     _level{1, 0, 0, 0};
     bool           _hasLevel = false;
     bool           _shaking = false;
+    /** @brief Whether every die was locked at the last sample, so the sample that sees them lock is known. */
+    bool           _locked = false;
     Reorientation  _turns[MAX_DICE] = {};
 };
 

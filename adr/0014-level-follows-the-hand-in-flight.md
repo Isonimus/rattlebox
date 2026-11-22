@@ -72,3 +72,15 @@ where it was; the smallest average over all 39 captures at 100 Hz was 0.165 g, i
   `artifacts/`, and the level probe is how to measure a change to this rule again.
 - The leftover lean toward the top on an upright wrist shake (41% top, 22% bottom in the control)
   is the shake's, not the level's, and no level rule removes it.
+
+## Amendment, 2026-11-22: locked dice level only to a still span found since they locked
+
+"While every die is locked it follows the latest still span" let the level go back to a span the
+hand had since left: the hold from before the shake when the hand never held still for 0.25 s
+between the shake and the last lock, or a hold during the flight when the hand then moved to read.
+At the lock the tray tilted under dice already at rest, by as much as the hand had moved since, and
+they slid. In the 120 replayed upright rolls the snap to the hold before the shake never happened,
+but the jump to a hold in flight came at every lock: at most 8.1 deg, 2.6 deg at the median, against
+the 24 deg recline. While every die is locked, the level is the latest still span
+found since the dice locked; until there is one, it stays where the roll in flight left it
+(slice 0018).

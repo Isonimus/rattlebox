@@ -24,6 +24,11 @@ constexpr uint8_t STILL_SPAN_CAPACITY = 32;
 class StillSpan {
 public:
     void add(const ImuSample& sample);
+    /**
+     * @brief Forget the span found so far. The samples in the window still count: a span they go on
+     * to complete ends at the newest sample, so its angle is the one the device is held at now.
+     */
+    void forget();
     /** @brief False until a whole span has been still, so a reading taken mid-motion at boot is not a level. */
     bool found() const { return _found; }
     /** @brief The mean reading, in g, of the latest still span; aborts before found(). */

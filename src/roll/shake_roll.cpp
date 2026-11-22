@@ -9,7 +9,13 @@ bool ShakeRoll::addSample(const ImuSample& sample, World& world, DieResult* resu
     _average.add(sample);
     // ADR-0014: in flight the level follows the hand, which reclines to read once the shake stops;
     // a level frozen at the hold before the shake slid the dice to the top of an upright StickC.
-    if (everyDieLocked(results, world.dieCount)) {
+    // Locked, the level is a still span found since the dice locked; until one is, it stays where
+    // the roll left it. An older span, from before the roll or held while it flew, is an angle the
+    // hand has since left, and levelling to it tilts the tray under resting dice (slice 0018).
+    const bool locked = everyDieLocked(results, world.dieCount);
+    if (locked && !_locked) _still.forget();
+    _locked = locked;
+    if (locked) {
         if (_still.found()) {
             _level = levelFrom(_still.latestMeanG());
             _hasLevel = true;

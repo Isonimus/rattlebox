@@ -40,6 +40,9 @@ static const Vec3 FLAT{0, 0, 1.0f};
 // Far past ADR-0005's half a g off 1 g, in turn either way along x, so every sample is busy.
 static const Vec3 SWING_RIGHT{2.0f, 0, 1.0f};
 static const Vec3 SWING_LEFT{-2.0f, 0, 1.0f};
+// Half again the still span's spread off the held angle, either way in turn: never a still span,
+// and about 0.01 g off 1 g, so never busy for the shake detector either. A hand that never settles.
+static const float WAVER_OFFSET_G = 1.5f * STILL_SPREAD_G;
 // Floats rotated through a quaternion carry a few ulps of error per component.
 static const float GRAVITY_TOLERANCE_MM_PER_S2 = 1.0f;
 // A step's own integration, against the same step done by hand: well under a degree apart.
@@ -83,6 +86,12 @@ struct Scene {
         uint32_t started = 0;
         for (uint32_t i = 0; i < count; i++) started += feed(1, i % 2 == 0 ? SWING_RIGHT : SWING_LEFT);
         return started;
+    }
+
+    /** @brief Feed @p count samples wavering about @p heldG, either way along x in turn. */
+    void waver(uint32_t count, Vec3 heldG) {
+        const Vec3 offset{WAVER_OFFSET_G, 0, 0};
+        for (uint32_t i = 0; i < count; i++) feed(1, i % 2 == 0 ? heldG + offset : heldG - offset);
     }
 };
 
@@ -201,6 +210,56 @@ void test_locked_dice_level_to_the_still_span_not_the_average() {
     assertGravity(trayGravity(levelFrom(FLAT), TILTED), scene.world.gravity);
 }
 
+/**
+ * @brief The roll in flight ends wavering at @p heldG and the die locks, the hand not still at that
+ * angle; returns the level the roll ended on. The die is locked by hand: this is about the level,
+ * not about how the die comes to rest.
+ */
+static Quaternion lockWhileWavering(Scene& scene, Vec3 heldG) {
+    scene.waver(SAMPLES_PER_SECOND, heldG);
+    const Quaternion rollLevel = scene.shakeRoll.level();
+    scene.results[0] = {DieState::Locked, RESTING_NUMERAL, 0};
+    scene.waver(1, heldG);
+    return rollLevel;
+}
+
+void test_dice_locked_after_a_shake_keep_the_rolls_level_until_a_new_still_span() {
+    // Slice 0018: the latest still span here is the hold before the shake; levelling to it at the
+    // lock tilts the tray back 30 degrees under dice already at rest, and they slide.
+    Scene scene;
+    scene.feed(SAMPLES_PER_SECOND, TILTED);
+    TEST_ASSERT_GREATER_THAN_UINT32(0, scene.shake(2 * SAMPLES_PER_SECOND));
+    const Quaternion rollLevel = lockWhileWavering(scene, FLAT);
+    TEST_ASSERT_FLOAT_WITHIN(ALIGNMENT_TOLERANCE, 1.0f, alignment(scene.shakeRoll.level(), rollLevel));
+}
+
+void test_dice_locked_after_a_launch_keep_the_rolls_level_until_a_new_still_span() {
+    Scene scene;
+    launchFromTiltedHold(scene);
+    const Quaternion rollLevel = lockWhileWavering(scene, FLAT);
+    TEST_ASSERT_FLOAT_WITHIN(ALIGNMENT_TOLERANCE, 1.0f, alignment(scene.shakeRoll.level(), rollLevel));
+}
+
+void test_dice_locked_after_a_hold_in_flight_keep_the_rolls_level_until_a_new_still_span() {
+    // Held still at FLAT for a span while the die flies, then raised to TILTED to read: that span
+    // is older than the angle the die locks at, and levelling to it tilts the tray as the hold
+    // before the roll would.
+    Scene scene;
+    launchFromTiltedHold(scene);
+    scene.feed(SAMPLES_PER_SECOND, FLAT);
+    const Quaternion rollLevel = lockWhileWavering(scene, TILTED);
+    TEST_ASSERT_FLOAT_WITHIN(ALIGNMENT_TOLERANCE, 1.0f, alignment(scene.shakeRoll.level(), rollLevel));
+}
+
+void test_a_still_span_after_the_lock_levels_the_locked_dice() {
+    // Held still at the angle it was raised from: a new still span, so the level again.
+    Scene scene;
+    launchFromTiltedHold(scene);
+    lockWhileWavering(scene, FLAT);
+    scene.feed(SAMPLES_PER_SECOND, TILTED);
+    assertGravity(STRAIGHT_DOWN, scene.world.gravity);
+}
+
 void test_a_launch_cancels_the_spin_in_progress() {
     // The spin sets the die's orientation before every step; left running, it would drag the
     // launched die back toward the turn it was making.
@@ -226,6 +285,10 @@ int main() {
     RUN_TEST(test_a_roll_in_flight_follows_the_held_angle_by_its_average);
     RUN_TEST(test_a_roll_in_flight_keeps_its_level_through_free_fall);
     RUN_TEST(test_locked_dice_level_to_the_still_span_not_the_average);
+    RUN_TEST(test_dice_locked_after_a_shake_keep_the_rolls_level_until_a_new_still_span);
+    RUN_TEST(test_dice_locked_after_a_launch_keep_the_rolls_level_until_a_new_still_span);
+    RUN_TEST(test_dice_locked_after_a_hold_in_flight_keep_the_rolls_level_until_a_new_still_span);
+    RUN_TEST(test_a_still_span_after_the_lock_levels_the_locked_dice);
     RUN_TEST(test_a_launch_cancels_the_spin_in_progress);
     return UNITY_END();
 }

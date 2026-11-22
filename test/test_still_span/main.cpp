@@ -123,6 +123,26 @@ void test_a_gap_in_the_samples_restarts_the_span() {
     assertVecWithin(FLAT, span.latestMeanG());
 }
 
+void test_a_forgotten_span_is_not_found_again_once_the_device_moves() {
+    // Slice 0018: locked dice forget the span from before they locked. A sample that moves the
+    // device keeps it from being found again: the old angle is not where the device is now.
+    StillSpan span;
+    const uint32_t next = feed(span, 0, PERIOD_100HZ_US, 2 * SAMPLES_PER_SPAN_100HZ, TILTED);
+    span.forget();
+    TEST_ASSERT_FALSE(span.found());
+    feed(span, next, PERIOD_100HZ_US, 1, FLAT);
+    TEST_ASSERT_FALSE(span.found());
+}
+
+void test_a_forgotten_span_is_found_again_by_a_still_window() {
+    StillSpan span;
+    const uint32_t next = feed(span, 0, PERIOD_100HZ_US, 2 * SAMPLES_PER_SPAN_100HZ, TILTED);
+    span.forget();
+    feed(span, next, PERIOD_100HZ_US, 1, TILTED);
+    TEST_ASSERT_TRUE(span.found());
+    assertVecWithin(TILTED, span.latestMeanG());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_a_held_angle_becomes_the_latest_still_mean);
@@ -133,5 +153,7 @@ int main() {
     RUN_TEST(test_the_span_is_a_quarter_second_of_timestamps_not_a_count_of_samples);
     RUN_TEST(test_the_timestamp_wrapping_round_keeps_the_span);
     RUN_TEST(test_a_gap_in_the_samples_restarts_the_span);
+    RUN_TEST(test_a_forgotten_span_is_not_found_again_once_the_device_moves);
+    RUN_TEST(test_a_forgotten_span_is_found_again_by_a_still_window);
     return UNITY_END();
 }
