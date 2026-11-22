@@ -1,6 +1,6 @@
 # The Python tools CI installs, pinned so a run is repeatable and Dependabot can propose upgrades.
 # PlatformIO builds and tests the firmware; pyserial and Pillow are what the host scripts under
 # scripts/ import, and their unit tests run in `npm test`. pioarduino needs Python 3.10 to 3.13.
-platformio==6.1.19
+platformio==6.2.0
 pyserial==3.5
 pillow==13.0.0
