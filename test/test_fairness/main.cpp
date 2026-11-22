@@ -9,6 +9,8 @@
 #include "../../src/geometry/rotation.cpp"
 #include "../../src/imu/shake_detector.h"
 #include "../../src/imu/shake_detector.cpp"
+#include "../../src/imu/reading_average.h"
+#include "../../src/imu/reading_average.cpp"
 #include "../../src/imu/still_span.h"
 #include "../../src/imu/still_span.cpp"
 #include "../../src/physics/die_result.h"

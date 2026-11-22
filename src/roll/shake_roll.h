@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "../geometry/quaternion.h"
 #include "../imu/imu_sample.h"
+#include "../imu/reading_average.h"
 #include "../imu/shake_detector.h"
 #include "../imu/still_span.h"
 #include "../physics/die_result.h"
@@ -21,6 +22,10 @@ enum class ShakeKick : uint8_t {
     /** @brief The throw, and each die spun to a fresh uniform orientation over a set time. */
     Spin,
 };
+
+// ADR-0014: below this the averaged reading has no direction to level by, as in free fall. The
+// smallest 0.1 s average over all 39 captures at 100 Hz was 0.165 g, in the hardest shake.
+constexpr float LEVEL_MIN_AVERAGE_G = 0.1f;
 
 /** @brief A kick, with the time a Spin takes. */
 struct KickPlan {
@@ -41,9 +46,9 @@ constexpr KickPlan PRODUCT_KICK{ShakeKick::Spin, REORIENTATION_S};
  * The device, the fairness test and the fairness probe all roll through this class, so invariant
  * #2 tests the code the device runs.
  *
- * Level is the latest still span's reading, followed while every die is locked and frozen while a
- * roll is in flight, so the hold before a shake stays level through it and after it. Until the
- * first still span, the tray stays level.
+ * Level is the latest still span's reading while every die is locked. While a roll is in flight it
+ * follows the reading averaged over 0.1 s (ADR-0014), so the angle a hand settles into to read the
+ * result is level by the time the dice lie still. Until the first still span, the tray stays level.
  */
 class ShakeRoll {
 public:
@@ -72,13 +77,14 @@ public:
 private:
     void kick(World& world, DieResult* results, UniformSource& source);
 
-    KickPlan      _kick;
-    ShakeDetector _detector;
-    StillSpan     _still;
-    Quaternion    _level{1, 0, 0, 0};
-    bool          _hasLevel = false;
-    bool          _shaking = false;
-    Reorientation _turns[MAX_DICE] = {};
+    KickPlan       _kick;
+    ShakeDetector  _detector;
+    StillSpan      _still;
+    ReadingAverage _average;
+    Quaternion     _level{1, 0, 0, 0};
+    bool           _hasLevel = false;
+    bool           _shaking = false;
+    Reorientation  _turns[MAX_DICE] = {};
 };
 
 #endif // SHAKE_ROLL_H

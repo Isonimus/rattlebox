@@ -6,11 +6,16 @@
 bool ShakeRoll::addSample(const ImuSample& sample, World& world, DieResult* results, UniformSource& source) {
     _detector.add(sample);
     _still.add(sample);
-    // A roll in flight keeps the level it started with: a hold after the shake at another angle
-    // tilts the tray, as it would a real one, until the last die locks.
-    if (_still.found() && everyDieLocked(results, world.dieCount)) {
-        _level = levelFrom(_still.latestMeanG());
-        _hasLevel = true;
+    _average.add(sample);
+    // ADR-0014: in flight the level follows the hand, which reclines to read once the shake stops;
+    // a level frozen at the hold before the shake slid the dice to the top of an upright StickC.
+    if (everyDieLocked(results, world.dieCount)) {
+        if (_still.found()) {
+            _level = levelFrom(_still.latestMeanG());
+            _hasLevel = true;
+        }
+    } else if (_hasLevel && length(_average.meanG()) >= LEVEL_MIN_AVERAGE_G) {
+        _level = levelFrom(_average.meanG());
     }
     if (_hasLevel) world.gravity = trayGravity(_level, sample.accelG);
 

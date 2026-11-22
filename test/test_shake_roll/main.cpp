@@ -8,6 +8,8 @@
 #include "../../src/geometry/rotation.cpp"
 #include "../../src/imu/shake_detector.h"
 #include "../../src/imu/shake_detector.cpp"
+#include "../../src/imu/reading_average.h"
+#include "../../src/imu/reading_average.cpp"
 #include "../../src/imu/still_span.h"
 #include "../../src/imu/still_span.cpp"
 #include "../../src/physics/die_result.h"
@@ -106,6 +108,8 @@ void test_the_tray_stays_level_until_the_first_still_span() {
     scene.shake(2 * SAMPLES_PER_SECOND);
     TEST_ASSERT_FALSE(scene.shakeRoll.hasLevel());
     assertGravity(STRAIGHT_DOWN, scene.world.gravity);
+    // The dice are in flight, where the level follows the average, but only once there is a level.
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, scene.shakeRoll.level().w);
 }
 
 void test_a_tilt_after_the_hold_tilts_the_tray() {
@@ -154,17 +158,47 @@ void test_no_die_locks_while_the_shake_goes_on() {
     TEST_ASSERT_EQUAL(DieState::Rolling, scene.results[0].state);
 }
 
-void test_a_roll_in_flight_keeps_its_level_until_every_die_locks() {
+/** @brief A scene held at TILTED until it is level there, then launched: a roll in flight on a still device. */
+static void launchFromTiltedHold(Scene& scene) {
+    scene.feed(SAMPLES_PER_SECOND, TILTED);
+    scene.shakeRoll.launch(scene.world, scene.results, 1, scene.source);
+}
+
+void test_a_roll_in_flight_follows_the_held_angle_by_its_average() {
+    // ADR-0014: people recline the device to read once they stop shaking; the dice must not slide
+    // toward the top while it settles.
+    Scene scene;
+    launchFromTiltedHold(scene);
+    scene.feed(1, FLAT);
+    const float share = 1 - expf(-(PERIOD_US / 1e6f) / READING_AVERAGE_TIME_CONSTANT_S);
+    const Vec3 averaged = TILTED + (FLAT - TILTED) * share;
+    assertGravity(trayGravity(levelFrom(averaged), FLAT), scene.world.gravity);
+    // Ten time constants later the flat hold is level, though the die has not locked.
+    scene.feed(SAMPLES_PER_SECOND, FLAT);
+    TEST_ASSERT_NOT_EQUAL(DieState::Locked, scene.results[0].state);
+    assertGravity(STRAIGHT_DOWN, scene.world.gravity);
+}
+
+void test_a_roll_in_flight_keeps_its_level_through_free_fall() {
+    // Thrown, the device reads nothing: no direction to level by, so the level stays.
+    Scene scene;
+    launchFromTiltedHold(scene);
+    scene.feed(SAMPLES_PER_SECOND, {0, 0, 0});
+    // Then a reading at half the least a level is taken from: the average settles on it, pointing
+    // FLAT, and only the threshold keeps the level from following. Half, not just under, so a
+    // retuned time constant cannot carry the average over the threshold and fail this for nothing.
+    scene.feed(SAMPLES_PER_SECOND, FLAT * (LEVEL_MIN_AVERAGE_G / 2));
+    TEST_ASSERT_FLOAT_WITHIN(ALIGNMENT_TOLERANCE, 1.0f, alignment(scene.shakeRoll.level(), levelFrom(TILTED)));
+}
+
+void test_locked_dice_level_to_the_still_span_not_the_average() {
+    // A quarter of a second still at a new angle, then one sample tilted back: the average has
+    // moved toward that sample, the still span has not.
     Scene scene;
     scene.feed(SAMPLES_PER_SECOND, TILTED);
-    scene.shake(2 * SAMPLES_PER_SECOND);
-    // Held flat after the shake: the roll still levels to the tilted hold before it.
     scene.feed(SAMPLES_PER_SECOND, FLAT);
-    assertGravity(trayGravity(levelFrom(TILTED), FLAT), scene.world.gravity);
-    // Once the die locks, the flat hold becomes the level.
-    scene.results[0] = {DieState::Locked, RESTING_NUMERAL, 0};
-    scene.feed(1, FLAT);
-    assertGravity(STRAIGHT_DOWN, scene.world.gravity);
+    scene.feed(1, TILTED);
+    assertGravity(trayGravity(levelFrom(FLAT), TILTED), scene.world.gravity);
 }
 
 void test_a_launch_cancels_the_spin_in_progress() {
@@ -189,7 +223,9 @@ int main() {
     RUN_TEST(test_a_shake_starts_one_roll_and_kicks_the_dice);
     RUN_TEST(test_a_shake_that_ends_and_starts_again_starts_a_second_roll);
     RUN_TEST(test_no_die_locks_while_the_shake_goes_on);
-    RUN_TEST(test_a_roll_in_flight_keeps_its_level_until_every_die_locks);
+    RUN_TEST(test_a_roll_in_flight_follows_the_held_angle_by_its_average);
+    RUN_TEST(test_a_roll_in_flight_keeps_its_level_through_free_fall);
+    RUN_TEST(test_locked_dice_level_to_the_still_span_not_the_average);
     RUN_TEST(test_a_launch_cancels_the_spin_in_progress);
     return UNITY_END();
 }

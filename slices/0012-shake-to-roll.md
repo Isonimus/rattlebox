@@ -92,6 +92,10 @@ held at reads as flat, as `docs/roadmap.md` asks, and the shake itself cannot mo
 no still span, and the detector fires about 0.9 s in, so the span in force is the hold before it.
 Until the first still span after boot, the tray stays level.
 
+> **Correction, 2026-11-21:** the in-flight freeze is replaced by ADR-0014. People recline the
+> device to read once they stop shaking, and the frozen level slid the dice to the top of an
+> upright StickC; in flight the level now follows the reading averaged over 0.1 s (slice 0015).
+
 **The shake roll is product code**: `ShakeRoll` in `src/roll/shake_roll.{h,cpp}`, beside slice
 0011's `dice_roll`. It owns the detector, the still span, the level and each die's turn:
 
