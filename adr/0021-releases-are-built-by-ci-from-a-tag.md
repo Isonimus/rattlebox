@@ -2,7 +2,7 @@
 id: '0021'
 title: "Releases are built by CI from a version tag, as one image per board that flashes at 0x0"
 type: architecture
-status: accepted
+status: amended
 date: 2026-11-22
 supersedes: []
 superseded_by: []
@@ -76,6 +76,10 @@ Rejected:
   erased, took its image with `esptool write-flash 0x0` alone and booted every part, its first line
   `[boot] Rattlebox v0.0.99 on M5StickC Plus2` and `[boot] Rattlebox v0.0.99 on Cardputer ADV`.
   Both bootloaders build DIO already (header byte 2 is `02`).
+  *Correction 2026-11-22: that run packaged on this workstation, where `pio pkg exec -- esptool`
+  ran an esptool 5.2.0 installed in `~/.local/bin`, not the platform's pinned 5.1.2. In the package
+  `esptool` is the Python package's directory, so on CI's runner the call failed, at the v0.1.0
+  tag. See the amendment below.*
 - A blind correctness review (`/wrap-up`) found the build step's failure hidden behind `tee` in a
   shell without pipefail, the traceback without git, and a release that ran no tests; each was
   fixed as above. A force-push to `main` makes `docs.yml`'s immutable check fail on the missing
@@ -83,3 +87,19 @@ Rejected:
 - `NOTICES.md` carries ESP-IDF's `COPYRIGHT.rst`, which names each third-party component and its
   license but does not reproduce every component's own text (newlib's `COPYING.NEWLIB`, for one).
   Which components the firmware links, and so which texts it must carry, is a ledger audit.
+
+## Amendment, 2026-11-22: the platform's esptool, and the image merged on every push
+
+The release workflow's first run, at `v0.1.0`, failed to package: `release.mjs` ran
+`pio pkg exec --package tool-esptoolpy -- esptool`, and in that package `esptool` is the Python
+package's directory, not a program. On a workstation the lookup carried on down PATH to a user's
+own esptool; the runner had none. Nothing ran the packaging before a tag, so a step written and
+proven on one machine first met a clean one at the release.
+
+- `release.mjs` runs the esptool pioarduino installs from its pinned `tool-esptoolpy` into its
+  Python environment, `<core_dir>/penv/bin/esptool`, the one its uploader runs, with `core_dir`
+  read from `pio system info`. It stops if that file is missing.
+- CI's firmware job runs `release.mjs --check-image <env>` after each board's build: it merges and
+  checks the image (DIO bootloader header) at the build's stamped version and writes nothing else,
+  so a packaging step that breaks fails on the push that breaks it.
+- The `v0.1.0` tag, which produced no release, was moved to the commit carrying this fix.

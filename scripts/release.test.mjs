@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import {
@@ -10,6 +11,7 @@ import {
   checkReleaseVersion,
   checksumLines,
   noticesText,
+  penvEsptool,
   stampedVersion,
 } from './release.mjs';
 
@@ -112,4 +114,15 @@ test('a version the changelog does not describe is refused', () => {
   assert.throws(() => changelogSection('# Changelog\n\n## v0.1.0\n\n- First.\n', 'v0.1.1'), /no "## v0.1.1" section/);
   assert.throws(() => changelogSection('## v0.1.0\n\n## v0.0.9\n- Old.\n', 'v0.1.0'), /section is empty/);
   assert.throws(() => changelogSection('## v0.1.00\n- Not it.\n', 'v0.1.0'), /no "## v0.1.0" section/);
+});
+
+test("esptool is the one pioarduino installed under PlatformIO's core directory", () => {
+  const systemInfo = { core_dir: { title: 'PlatformIO Core Directory', value: join('project', '.platformio') } };
+  assert.equal(penvEsptool(systemInfo), join('project', '.platformio', 'penv', 'bin', 'esptool'));
+});
+
+test('system info without a core directory is refused rather than guessed', () => {
+  for (const systemInfo of [{}, { core_dir: {} }, { core_dir: { value: '' } }]) {
+    assert.throws(() => penvEsptool(systemInfo), /no core_dir/);
+  }
 });

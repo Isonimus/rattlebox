@@ -40,9 +40,9 @@ are written for AI-assisted work, but they apply to everyone. In short:
   flash or verify, updates `README.md` (with new captures when the screen changed) and
   `CHANGELOG.md`.
 
-CI runs the host tests, the three-dice fairness test, both firmware builds with a warnings gate,
-cppcheck, CodeQL and the decision-record checks on every pull request, and a pull request needs it
-green.
+CI runs the host tests, the three-dice fairness test, both firmware builds with a warnings gate
+and their release images merged, cppcheck, CodeQL and the decision-record checks on every pull
+request, and a pull request needs it green.
 
 ## Contributing your shakes
 

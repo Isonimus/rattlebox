@@ -19,7 +19,7 @@
 | 0016 | The band has its own 20 px strip above the tray, and the tray is the 115 px beneath it | accepted |
 | 0019 | Each board clears its I2C bus with nine clocks and a STOP before the controller starts | accepted |
 | 0020 | The StickC env builds for the Plus 2's 8 MB flash at 80 MHz, with its PSRAM left off | accepted |
-| 0021 | Releases are built by CI from a version tag, as one image per board that flashes at 0x0 | accepted |
+| 0021 | Releases are built by CI from a version tag, as one image per board that flashes at 0x0 | amended |
 | 0022 | CI checks every push to main and every pull request, with the Adversary's repository files adapted | accepted |
 | 0024 | The shake threshold rises to 0.275 over three people's takes; a brisk walk is not told from a gentle shake, and a slow rocking shake is not a roll | accepted |
 

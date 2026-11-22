@@ -1,7 +1,12 @@
 // Packages a release from the firmware already built for each board (ADR-0021).
 //
 // Usage: node scripts/release.mjs --version v0.1.0 --source-url <repo URL> [--out dist]
+//        node scripts/release.mjs --check-image <env> [--out dist]
 // Build first: pio run -e cardputer && pio run -e m5stickc-plus2
+//
+// --check-image merges and checks one board's image at whatever version the build was stamped
+// with, and writes nothing else. CI runs it on every push, so packaging that breaks fails there
+// rather than at the next tag, which is the only other place this script runs.
 //
 // The release workflow (.github/workflows/release.yml) runs it on a pushed tag. For each board it
 // merges the bootloader, partition table, OTA data and app into one image that flashes at 0x0,
@@ -12,7 +17,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -110,6 +115,27 @@ export function noticesText({ version, sourceUrl, license, thirdPartyNotices, at
   return sections.join('\n');
 }
 
+/**
+ * The esptool pioarduino installs into its own Python environment under PlatformIO's core directory,
+ * from the platform's pinned tool-esptoolpy, and runs to upload. `pio pkg exec -- esptool` looks
+ * the name up on PATH, where the package directory's `esptool` is the Python package, not a
+ * program: it ran whatever esptool came later on PATH, a user install on a workstation, and failed
+ * on CI's clean runner at the v0.1.0 tag.
+ */
+export function penvEsptool(systemInfo) {
+  const coreDir = systemInfo?.core_dir?.value;
+  if (typeof coreDir !== 'string' || coreDir === '') {
+    throw new Error("pio system info names no core_dir, so the platform's esptool cannot be found");
+  }
+  return join(coreDir, 'penv', 'bin', 'esptool');
+}
+
+function platformEsptool() {
+  const esptool = penvEsptool(JSON.parse(run('pio', ['system', 'info', '--json-output'])));
+  if (!existsSync(esptool)) throw new Error(`no esptool at ${esptool}: a firmware build installs it, so build first`);
+  return esptool;
+}
+
 function run(command, args) {
   return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
 }
@@ -124,31 +150,52 @@ function boardImages(env) {
   return { buildDir, images: images.sort((a, b) => a.offset - b.offset) };
 }
 
-function packageBoard(board, version, outDir) {
+// A release packages only firmware stamped with its tag; a check (no releaseVersion) takes the build as
+// it was stamped, which on CI is a commit past the last tag.
+function packageBoard(board, outDir, releaseVersion) {
   const { buildDir, images } = boardImages(board.env);
   const built = stampedVersion(readFileSync(join(buildDir, 'generated', 'firmware_version.h'), 'utf8'));
-  if (built !== version) throw new Error(`${board.env}: the firmware was built as ${built}, not ${version}`);
-  const name = `rattlebox-${version}-${board.asset}.bin`;
+  if (releaseVersion !== undefined && built !== releaseVersion) {
+    throw new Error(`${board.env}: the firmware was built as ${built}, not ${releaseVersion}`);
+  }
+  const name = `rattlebox-${built}-${board.asset}.bin`;
   const output = join(outDir, name);
   const offsetArgs = images.flatMap(({ offset, path }) => [`0x${offset.toString(16)}`, path]);
-  run('pio', ['pkg', 'exec', '--package', 'tool-esptoolpy', '--', 'esptool', '--chip', board.chip, 'merge-bin',
-    '-o', output, '--flash-mode', 'dio', '--flash-freq', 'keep', '--flash-size', 'keep', ...offsetArgs]);
+  run(platformEsptool(), ['--chip', board.chip, 'merge-bin', '-o', output,
+    '--flash-mode', 'dio', '--flash-freq', 'keep', '--flash-size', 'keep', ...offsetArgs]);
   const merged = readFileSync(output);
   checkBootloaderDio(merged, images[0].offset);
   return { name, bytes: merged };
 }
 
+function checkImage(env, outDir) {
+  const board = BOARDS.find((candidate) => candidate.env === env);
+  if (!board) throw new Error(`--check-image ${env}: not a released board (${BOARDS.map((b) => b.env).join(', ')})`);
+  mkdirSync(outDir, { recursive: true });
+  const { name } = packageBoard(board, outDir);
+  console.log(`Image ${name} merged and checked in ${outDir}`);
+}
+
 function main() {
   const { values } = parseArgs({
-    options: { version: { type: 'string' }, 'source-url': { type: 'string' }, out: { type: 'string', default: 'dist' } },
+    options: {
+      version: { type: 'string' },
+      'source-url': { type: 'string' },
+      out: { type: 'string', default: 'dist' },
+      'check-image': { type: 'string' },
+    },
   });
+  if (values['check-image'] !== undefined) {
+    checkImage(values['check-image'], values.out);
+    return;
+  }
   const version = checkReleaseVersion(values.version);
   if (!values['source-url']) throw new Error('--source-url is required: NOTICES.md offers the source from it');
   // Before the builds are packaged, so a release the changelog does not describe stops first.
   const releaseNotes = changelogSection(readFileSync('CHANGELOG.md', 'utf8'), version);
   mkdirSync(values.out, { recursive: true });
 
-  const files = BOARDS.map((board) => packageBoard(board, version, values.out));
+  const files = BOARDS.map((board) => packageBoard(board, values.out, version));
   const lovyanLicense = join('.pio', 'libdeps', BOARDS[0].env, 'LovyanGFX', 'license.txt');
   const notices = noticesText({
     version,
