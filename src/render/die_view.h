@@ -20,6 +20,15 @@ struct Lighting {
     float ambient;
 };
 
+/**
+ * @brief How far toward the camera a face's normal must turn before the face is drawn. A regular
+ * solid has faces exactly edge-on at rest (four of the D20's), and float rounding puts their normals
+ * a hair either side of perpendicular, by up to 4.8e-9 where multiply-adds are fused, so a test at
+ * exactly zero would draw some of them on one compiler and not another. A face this close to edge-on
+ * is 1e-4 of its width across on screen: under a hundredth of a pixel for any die the tray draws.
+ */
+constexpr float FACING_EDGE_ON = 1e-4f;
+
 /** @brief One face as drawn: a screen-space convex polygon, its colour, and its numeral if it shows one. */
 struct ScreenFace {
     int16_t  x[FACE_MAX_CORNERS];
@@ -42,7 +51,7 @@ struct DieView {
  * @brief A die on a top-down orthographic camera: the tray's x is the screen's x, the
  * tray's y is the screen's up, and the camera looks down the tray's −z.
  *
- * A face is drawn only if its normal has a component toward the camera; it shows its numeral
+ * A face is drawn only if its normal turns toward the camera by more than FACING_EDGE_ON; it shows its numeral
  * only if that component is at least @p numeralMinFacing, the cosine of the widest angle
  * from the camera at which a numeral still reads on so small a face. @p pxPerUnit scales the
  * shape's length unit to pixels, so the physics can keep real millimetres.

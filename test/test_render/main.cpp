@@ -47,7 +47,7 @@ static Vec3 centroidOfNumeral(const DieShape& shape, uint8_t numeral) {
 static uint8_t faceCountTowardCamera(const DieShape& shape, const Rotation& orientation) {
     uint8_t count = 0;
     for (uint8_t i = 0; i < shape.faceCount; i++) {
-        if (rotate(orientation, shape.faces[i].normal).z > 0) count++;
+        if (rotate(orientation, shape.faces[i].normal).z > FACING_EDGE_ON) count++;
     }
     return count;
 }
@@ -72,6 +72,20 @@ void test_only_faces_toward_the_camera_are_drawn() {
         viewDie(mesh, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
         TEST_ASSERT_EQUAL_UINT8(faceCountTowardCamera(mesh, orientation), view.faceCount);
     }
+}
+
+void test_a_face_rounding_tips_toward_the_camera_is_edge_on_and_not_drawn() {
+    // A D20 at rest has four faces exactly edge-on. Where the compiler fuses multiply-adds, their
+    // computed normals come out a hair either side of perpendicular (z = 4.8e-9, measured on x86-64
+    // with FMA), and a facing test at exactly zero then draws two of them: CI's runner drew 10 faces
+    // where the rest pose has 8.
+    const float ROUNDED_EDGE_ON_Z = 4.8e-9f;
+    DieShape sliver = makeD20(EDGE_PX);
+    sliver.faceCount = 1;
+    sliver.faces[0].normal = {1.0f, 0.0f, ROUNDED_EDGE_ON_Z};
+    DieView view{};
+    viewDie(sliver, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    TEST_ASSERT_EQUAL_UINT8(0, view.faceCount);
 }
 
 void test_a_face_turned_to_the_camera_is_drawn_and_its_opposite_is_not() {
@@ -226,6 +240,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_at_rest_eight_faces_point_up_four_edge_on_and_eight_down);
     RUN_TEST(test_only_faces_toward_the_camera_are_drawn);
+    RUN_TEST(test_a_face_rounding_tips_toward_the_camera_is_edge_on_and_not_drawn);
     RUN_TEST(test_a_face_turned_to_the_camera_is_drawn_and_its_opposite_is_not);
     RUN_TEST(test_only_faces_within_the_numeral_angle_show_a_numeral_at_their_centre);
     RUN_TEST(test_each_numeral_sits_over_its_own_face_with_screen_y_down);

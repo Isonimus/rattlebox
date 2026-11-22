@@ -36,7 +36,7 @@ void viewDie(const DieShape& shape, float pxPerUnit, const Rotation& orientation
         const DieFace& source = shape.faces[i];
         const Vec3 normal = rotate(orientation, source.normal);
         const float facing = dot(normal, TOWARD_CAMERA);
-        if (facing <= 0) continue;
+        if (facing <= FACING_EDGE_ON) continue;
 
         ScreenFace& face = view.faces[view.faceCount++];
         face.cornerCount = source.cornerCount;
