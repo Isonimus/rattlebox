@@ -1,0 +1,23 @@
+# Consistent whitespace across editors: https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# The scripts and the workflows: the two-space indent they are written in.
+[*.{mjs,js,json,yml,yaml}]
+indent_size = 2
+
+# Two trailing spaces are a hard line break in Markdown.
+[*.md]
+trim_trailing_whitespace = false
+
+# Upstream license texts, kept byte for byte as they were published.
+[docs/licenses/**]
+trim_trailing_whitespace = false
+insert_final_newline = false

@@ -1,0 +1,45 @@
+name: Bug report
+description: Something the firmware does wrong
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: >-
+        The first line the board prints over USB serial at boot, `[boot] Rattlebox <version> on
+        <board>`, or the release you flashed.
+      placeholder: "v0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: board
+    attributes:
+      label: Board
+      options:
+        - M5Stack Cardputer ADV
+        - M5StickC Plus 2
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: serial
+    attributes:
+      label: Serial log
+      description: "The board's output at 115200 baud around the problem, e.g. from `pio device monitor`. A failed boot names the part and the reason."
+      render: text

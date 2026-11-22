@@ -1,0 +1,29 @@
+name: Feature request
+description: An idea for the dice tray
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The plan, and what is deliberately not planned, is in docs/roadmap.md; a request that is
+        already there can add its use case to the existing item instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The game or situation, and what is hard or impossible today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How might it work?
+  - type: dropdown
+    id: board
+    attributes:
+      label: Board
+      multiple: true
+      options:
+        - M5Stack Cardputer ADV
+        - M5StickC Plus 2
+        - Both

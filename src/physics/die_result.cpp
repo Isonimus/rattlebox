@@ -9,9 +9,11 @@ constexpr Vec3 TOWARD_GLASS{0, 0, 1};
 } // namespace
 
 UpFace upFace(const DieShape& shape, const Quaternion& orientation) {
+    // Seeded from the first face rather than a sentinel below any alignment: every shape has faces
+    // (die_shape.cpp), and a sentinel that survived the loop would reach acosf out of its domain.
     UpFace best{0, 0};
-    float bestAlignment = -2.0f;
-    for (uint8_t i = 0; i < shape.faceCount; i++) {
+    float bestAlignment = dot(rotate(orientation, shape.faces[0].normal), TOWARD_GLASS);
+    for (uint8_t i = 1; i < shape.faceCount; i++) {
         const float alignment = dot(rotate(orientation, shape.faces[i].normal), TOWARD_GLASS);
         if (alignment > bestAlignment) {
             bestAlignment = alignment;

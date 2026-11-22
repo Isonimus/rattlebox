@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # The actions the workflows use.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  # requirements.txt: PlatformIO and the host scripts' imports. The pioarduino platform and
+  # LovyanGFX are pinned in platformio.ini, which Dependabot does not read; upgrading them is a
+  # decision with its own device run (ADR-0001), not a weekly pull request.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly

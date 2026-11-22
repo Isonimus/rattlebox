@@ -1,0 +1,45 @@
+# The pre-commit hook's backstop, at the path the hook names (.git/hooks/pre-commit): the same three
+# checkers on every push and pull request, so a clone without the hook, or a commit made with
+# --no-verify, is still checked (stele:ADR-0003).
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # check-immutable compares two revisions; a shallow clone has only one.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Doc invariants
+        run: npm run lint
+      - name: The index matches the corpus
+        run: node scripts/build-index.mjs --check .
+      - name: Immutable bodies only gained lines
+        env:
+          # A pull request is checked head against base, not against the merge commit, which would
+          # count the base branch's own history as this change.
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # A branch's first push has no earlier revision, so nothing could have been edited. Said
+          # out loud, since a silent skip looks like a check that ran. A force-push to main leaves a
+          # "before" the clone no longer has, and the check then fails on the missing revision:
+          # deliberately, since main's history is not rewritten here and a rewrite should be seen.
+          if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "::notice::No earlier revision (first push): nothing to compare against."
+            exit 0
+          fi
+          node scripts/check-immutable.mjs "$BASE_SHA" "$HEAD_SHA"

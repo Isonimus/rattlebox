@@ -1,0 +1,5 @@
+name: CodeQL config
+
+# paths and paths-ignore do not apply to compiled languages: CodeQL analyzes everything the build
+# compiles. Results outside our own code are dropped after analysis instead, in codeql.yml.
+# This file is the pinned config the workflow names, and the place a query-suite choice would go.

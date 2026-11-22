@@ -28,7 +28,7 @@ Every document is exactly one of four things.
 | **Immutable** | `adr/*.md`, `slices/*.md` | Written once. Body prose is never edited. Only status/supersession fields may change. |
 | **Generated** | `adr/INDEX.md` | Built by script from frontmatter. Never hand-edited. |
 | **Ledger** | `LEDGER.md` | Exactly one per repo. The only hand-maintained tracker. |
-| **Live doc** | `README.md`, `docs/*.md` | Describes how something behaves *now*. Updated **in the same change** as the thing it describes, and cited from this file so it is never orphaned (stele:ADR-0010). |
+| **Live doc** | `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/*.md` | Describes how something behaves *now*. Updated **in the same change** as the thing it describes, and cited from this file so it is never orphaned (stele:ADR-0010). |
 
 - **ADR** — a decision later work must obey (a mechanism, data format, or boundary).
   Asserts *"on date X we chose Y because Z"*: a historical claim, true forever.
@@ -132,8 +132,8 @@ actually wired (R11), so a row cannot claim a check that runs nowhere.
 
 | # | Invariant | Source | Enforced by |
 |---|---|---|---|
-| 1 | A change to anything shared by both boards (`src/hal/*.h`, and any code outside `src/hal/boards/`) is done only once both `cardputer` and `m5stickc-plus2` build. One env compiles one board's folder, so a single-env build proves nothing about the other. | ADR-0001 | pending (LEDGER) |
-| 2 | A die type ships only with a passing host fairness test over rolls through the real physics code, chained one after another on recorded shakes: chi-square goodness of fit of the results, and the share of results on the die's previous face against chance. One die at a time runs in `npm test`; three at a time run with `npm run test:fairness` before a change to the physics, its constants, the throw, the spin, the shake detector, the tray gravity or the shake fixtures merges. | ADR-0002, ADR-0009, ADR-0010 | verified_by: `test/test_fairness` (`npm test`, one die); three dice: pending (LEDGER) |
+| 1 | A change to anything shared by both boards (`src/hal/*.h`, and any code outside `src/hal/boards/`) is done only once both `cardputer` and `m5stickc-plus2` build. One env compiles one board's folder, so a single-env build proves nothing about the other. | ADR-0001, ADR-0022 | verified_by: CI (`ci.yml`, a firmware job per board) |
+| 2 | A die type ships only with a passing host fairness test over rolls through the real physics code, chained one after another on recorded shakes: chi-square goodness of fit of the results, and the share of results on the die's previous face against chance. One die at a time runs in `npm test`; three at a time run with `npm run test:fairness` before a change to the physics, its constants, the throw, the spin, the shake detector, the tray gravity or the shake fixtures merges. | ADR-0002, ADR-0009, ADR-0010, ADR-0022 | verified_by: `test/test_fairness` (`npm test`, one die; CI's fairness job, three dice) |
 | 3 | A die's reported result never changes after it locks at first rest; only a new roll replaces it. | ADR-0002, ADR-0009 | verified_by: `test/test_die_result` (`npm test`) |
 | 4 | Timing derived from IMU samples uses their timestamps, never the configured output rate: the chips' clocks were measured up to 1.1% off it. | ADR-0005 | review-only |
 | 5 | Every I2C bus is cleared with `clearI2cBus` before its controller starts, and a failed clear fails the boot: a reset mid-read leaves a device sending into the boot's first transfer. | ADR-0019 | review-only |

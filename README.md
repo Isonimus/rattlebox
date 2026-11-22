@@ -11,6 +11,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://github.com/Isonimus/rattlebox/releases/latest"><img src="https://img.shields.io/github/v/release/Isonimus/rattlebox" alt="Latest release"></a>
+  <a href="https://github.com/Isonimus/rattlebox/actions/workflows/ci.yml"><img src="https://github.com/Isonimus/rattlebox/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Isonimus/rattlebox/actions/workflows/codeql.yml"><img src="https://github.com/Isonimus/rattlebox/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <img src="https://img.shields.io/badge/platform-ESP32%20%2F%20ESP32--S3-333?logo=espressif" alt="Platform: ESP32 / ESP32-S3">
   <img src="https://img.shields.io/badge/built%20with-PlatformIO-orange?logo=platformio" alt="Built with PlatformIO">
   <a href="https://www.npmjs.com/package/@isonimus/stele"><img src="https://img.shields.io/badge/method-Stele-6E44FF" alt="Built with Stele"></a>
@@ -24,6 +26,7 @@
   <a href="#building-and-flashing">Building</a> •
   <a href="#verifying">Verifying</a> •
   <a href="#roadmap">Roadmap</a> •
+  <a href="#contributing">Contributing</a> •
   <a href="#built-with-stele">Method</a>
 </p>
 
@@ -129,13 +132,24 @@ cycles the count, and `S` sends a screen capture.
 | `npm run verify:roll -- --env <env> --port <port>` | On a flashed board: boots, rolls 40 times three D6 and 60 times three D20, checks every roll locks and the results pass chi-square, and saves screen captures |
 
 `verify:skeleton`, `verify:shake` and `verify:sound` are the other device checks; each names its
-usage at the top of its script in `scripts/`. Pushing a `v*` tag builds and publishes a release.
+usage at the top of its script in `scripts/`.
+
+CI runs everything that needs no board on each push to `main` and each pull request: `npm test`,
+the three-dice fairness test, both boards' firmware with no compiler warnings allowed in `src/`,
+cppcheck, CodeQL, and the decision-record checks. Pushing a `v*` tag builds and publishes a release.
 
 ## Roadmap
 
 v0.1 is the dice tray described above. v0.2 adds D4, D8, D10, D12 and percentile dice, dice
 notation typed on the Cardputer (`3d6+2`, `2d20kh1`), presets, roll history and a hidden roll. The
 plan, and what is deliberately not planned, is in [`docs/roadmap.md`](docs/roadmap.md).
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md) says what a
+change needs, and [`CHANGELOG.md`](CHANGELOG.md) what each release changed. Report a security issue
+privately, as [`SECURITY.md`](SECURITY.md) describes. Everyone taking part follows the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 ## Built with Stele
 
@@ -144,7 +158,7 @@ documentation-as-decisions method. Every durable decision is written as an immut
 ([`adr/`](adr/)) and every feature as a **slice** ([`slices/`](slices/)) before the code, shipped
 in the same commit and frozen once merged, so the record of why is never rewritten, only
 superseded. Open work lives in a single [`LEDGER.md`](LEDGER.md); [`adr/INDEX.md`](adr/INDEX.md) is
-generated; and a pre-commit hook runs the linter on every commit. The conventions live in
+generated; and a pre-commit hook, with CI as its backstop, runs the linter on every commit. The conventions live in
 [`CLAUDE.md`](CLAUDE.md). If the layout looks unusual, that is why: the commit history is meant to
 read as a trail of decisions.
 

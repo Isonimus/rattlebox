@@ -1,0 +1,66 @@
+name: CodeQL
+
+# Semantic security analysis of our C++ firmware, reported as Code Scanning alerts (ADR-0022).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '27 4 * * 1' # weekly, Monday 04:27 UTC, so new queries reach code that has not changed
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze C/C++
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .platformio
+            ~/.cache/pip
+          key: pio-codeql-${{ hashFiles('platformio.ini', 'requirements.txt') }}
+      - run: pip install -r requirements.txt
+      # CodeQL traces a real compilation, which autobuild cannot drive through PlatformIO, so both
+      # boards are built between init and analyze.
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: c-cpp
+          config-file: ./.github/codeql/codeql-config.yml
+      - run: pio run -e cardputer && pio run -e m5stickc-plus2
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:c-cpp
+          upload: false
+          output: sarif-results
+      # A compiled language's analysis covers everything compiled, LovyanGFX and the framework
+      # included, and paths-ignore does not apply to it; results outside our own code are dropped by
+      # path before upload, as the Adversary does (adversary:slice-0015). A result with no location is
+      # kept rather than dropped.
+      - name: Keep only results in our own code
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in sarif-results/*.sarif; do
+            jq '(.runs[].results) |= map(select(
+              ((.locations[0].physicalLocation.artifactLocation.uri)? // "") as $u
+              | ($u | startswith(".pio/")) or ($u | startswith(".platformio/")) or ($u | startswith("test/"))
+              | not))' "$f" > "$f.tmp"
+            mv "$f.tmp" "$f"
+          done
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: sarif-results
+          category: /language:c-cpp

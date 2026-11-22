@@ -17,9 +17,7 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 ## Open
 
 <!-- One line per open item. Delete the line to close it; the git log is the done-record. -->
-- [deferred] No CI builds both envs yet, so invariant #1 holds by review alone (ADR-0001)
 - [deferred] The tray's gravity leaves out the rotating frame's centrifugal, Euler and Coriolis terms from the gyro; adding them would stir the dice more, so the fairness test reruns if they are (ADR-0010)
-- [deferred] The three-dice fairness test (`npm run test:fairness`, 85 s on an idle machine on 2026-11-22) runs only by hand before a physics or input change merges; no CI runs it, so invariant #2's three-dice half holds by review (ADR-0010)
 - [audit] The fairness test's shakes are twelve takes from one operator on one day; record other people's shakes (slower, rotational, one-handed) and rerun the probe's shake sweep before a release (ADR-0010)
 - [audit] The shake detector's margin (0.07 each side) rests on 3 takes per gesture from one operator; re-run `scripts/imu-probe.mjs` with other people's shakes and handling before relying on it in a release (ADR-0005)
 - [feature] A browser web flasher on GitHub Pages for the release images, so a board can be flashed without installing esptool (ADR-0021)

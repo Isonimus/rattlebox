@@ -1,0 +1,126 @@
+name: CI
+
+# Every push to main and every pull request: the host tests, the three-dice fairness test, both
+# boards' firmware with a warnings gate and a size report, and cppcheck (ADR-0022).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Only the newest push to a ref is worth checking.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v7
+        with:
+          # pioarduino refuses Python above 3.13.
+          python-version: '3.13'
+      # platformio.ini keeps PlatformIO's packages in the project (core_dir = .platformio), so that
+      # is the directory worth caching, not ~/.platformio.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .platformio
+            ~/.cache/pip
+          key: pio-native-${{ hashFiles('platformio.ini', 'requirements.txt') }}
+      - run: pip install -r requirements.txt
+      - name: npm test (scripts, Python and the native suite, with the one-die fairness test)
+        run: npm test
+
+  fairness:
+    # Invariant #2's three-dice half: minutes, so npm test leaves it out (ADR-0010).
+    name: fairness, three dice
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .platformio
+            ~/.cache/pip
+          key: pio-native-${{ hashFiles('platformio.ini', 'requirements.txt') }}
+      - run: pip install -r requirements.txt
+      - run: npm run test:fairness
+
+  firmware:
+    # Invariant #1: shared code is done only when both boards build (ADR-0001).
+    name: firmware, ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [cardputer, m5stickc-plus2]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The build stamps `git describe` into the firmware (ADR-0021), which needs the tags.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .platformio
+            ~/.cache/pip
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'requirements.txt') }}
+      - run: pip install -r requirements.txt
+      # .pio/build is not cached, so every translation unit compiles and its warnings reach the log.
+      # A step's default shell is `bash -e` without pipefail, where tee's success would hide a
+      # failed build, so pipefail is set here.
+      - name: pio run -e ${{ matrix.env }}
+        run: |
+          set -o pipefail
+          pio run -e ${{ matrix.env }} 2>&1 | tee build.log
+      - name: No warnings in src/
+        run: node scripts/lint-build-warnings.mjs build.log
+      - name: Size report
+        run: |
+          set -euo pipefail
+          ram=$(grep -E '^RAM:' build.log | tail -1)
+          flash=$(grep -E '^Flash:' build.log | tail -1)
+          # Missing lines mean PlatformIO's output changed and this report is broken, not that the
+          # firmware is empty.
+          test -n "$ram" && test -n "$flash" || { echo "::error::no RAM: or Flash: line in the build log"; exit 1; }
+          {
+            echo "### ${{ matrix.env }}"
+            echo
+            echo '```'
+            echo "$ram"
+            echo "$flash"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cppcheck:
+    name: cppcheck
+    # Pinned: a newer image can bring a cppcheck that renames checks or raises severities, which
+    # would fail code that has not changed.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y cppcheck
+      # cppcheck's default severity, error, and the warnings it reports alongside: the class that
+      # finds real bugs (an out-of-domain call, a null dereference) with few false alarms.
+      - run: >
+          cppcheck --std=c++17 --language=c++ --error-exitcode=1
+          --inline-suppr --suppress=missingIncludeSystem -q
+          -I src src/
