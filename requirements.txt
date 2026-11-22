@@ -3,4 +3,4 @@
 # scripts/ import, and their unit tests run in `npm test`. pioarduino needs Python 3.10 to 3.13.
 platformio==6.1.19
 pyserial==3.5
-pillow==11.3.0
+pillow==13.0.0
