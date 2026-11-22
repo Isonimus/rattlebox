@@ -10,6 +10,8 @@ decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
 - **Installing with M5Launcher.** Each release also carries the app alone,
   `rattlebox-<version>-<board>-app.bin`, for over-the-air installers. The full image, which esptool
   and M5Burner flash, is unchanged.
+- **The serial boot log names each canvas.** The two screen buffers report as `front canvas` and
+  `back canvas`, where both said `canvas`, so a failure says which one ran out of memory.
 
 ## v0.1.0 (2026-11-22)
 

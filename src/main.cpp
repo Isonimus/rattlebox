@@ -422,7 +422,7 @@ void setup() {
     // Power first: the StickC switches itself off unless its HOLD pin is latched, and
     // the latch cannot fail, so nothing is lost by bringing the display up second.
     const BootStep steps[] = {
-        {"power", hal.power},   {"display", hal.display}, {"canvas", front},     {"canvas", back},
+        {"power", hal.power},   {"display", hal.display}, {"front canvas", front}, {"back canvas", back},
         {"input", hal.input},   {"imu", hal.imu},         {"audio", hal.audio}, {"rng", randomness},
     };
     const BootOutcome outcome = runBootSteps(steps, sizeof(steps) / sizeof(steps[0]), logStarted);

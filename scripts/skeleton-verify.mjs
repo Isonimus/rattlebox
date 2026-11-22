@@ -31,8 +31,10 @@ export const REST_GYRO_LIMIT_DPS = 10;
 export const TWIST_PEAK_DPS = 90;
 export const SHAKE_PEAK_G = 2;
 
-const BOOT_OK = /^\[boot\] (\w+) OK: (.*)$/;
-const BOOT_FAILED = /^\[boot\] (\w+) FAILED: (.*)$/;
+// A subsystem's name may be words ("front canvas"): the product boots two canvases, and two
+// lines both saying "canvas" could not tell which one failed.
+const BOOT_OK = /^\[boot\] (\w+(?: \w+)*) OK: (.*)$/;
+const BOOT_FAILED = /^\[boot\] (\w+(?: \w+)*) FAILED: (.*)$/;
 const BOOT_READY = /^\[boot\] .* ready$/;
 const IMU_SAMPLE = /^\[imu\] (\d+)((?: -?\d+(?:\.\d+)?){6})$/;
 const INPUT_ACTION = /^\[input\] (\w+)$/;

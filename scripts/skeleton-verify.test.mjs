@@ -79,6 +79,11 @@ test('a FAILED boot line fails the boot and names the subsystem and reason', () 
   assert.ok(result.failures.includes('boot: never reported ready'));
 });
 
+test('a subsystem named in two words parses whole, OK or FAILED: the product has a front and a back canvas', () => {
+  assert.deepEqual(parseLine('[boot] front canvas OK: 240x135'), { kind: 'boot-ok', subsystem: 'front canvas', detail: '240x135' });
+  assert.deepEqual(parseLine('[boot] back canvas FAILED: no heap'), { kind: 'boot-failed', subsystem: 'back canvas', reason: 'no heap' });
+});
+
 test('an IMU configured under the required ranges fails the boot', () => {
   const parsed = [
     '[boot] power OK: x', '[boot] display OK: y', '[boot] input OK: z',
