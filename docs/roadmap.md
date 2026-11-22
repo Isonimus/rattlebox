@@ -74,7 +74,9 @@ board is captured from shake to locked result.
 - **Dice cup** (StickC first): turn the device face down, shake, turn it over to see the result.
 - **Shared tray over ESP-NOW**: one device rolls and nearby devices show the same result,
   with no router.
-- **Themes**: dice and tray palettes.
+- **Splash screen** at boot: the name, the branding and the firmware version, so a bug report
+  can say which build it came from. It is kept short, because the device is picked up to roll.
+- **Themes**: dice, tray and strip palettes, picked from a settings menu.
 - **Wake on shake** from the IMU's motion interrupt, with auto-sleep.
 
 ## Not planned
