@@ -48,7 +48,8 @@ later slices can prove on-screen behaviour with captured frames.
   dice would always pile against the bottom edge.
 - **Top-down camera** looking into the tray, so a die's result face points at the viewer.
 - **Readable results**: numerals drawn in 2D at the projected centres of faces that point
-  at the camera, then an overlay with each result and the total once all dice lock.
+  at the camera, and a strip above the tray with the die type, to which each result and the
+  total are added once all dice lock (ADR-0016).
 - **Sound**: a rattle while shaking and clacks on collisions. Neither board can vibrate, so
   audio is the only physical feedback.
 - **Controls**: keyboard on the Cardputer, buttons A and B on the StickC.

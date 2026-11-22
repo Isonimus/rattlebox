@@ -24,12 +24,21 @@ constexpr uint32_t stepsIn(float seconds) { return static_cast<uint32_t>(seconds
 
 constexpr float GRAVITY_MM_PER_S2 = 9810.0f;
 
+// Both boards' screen, which the tray is laid out on: the product stops at boot on any other.
+constexpr int SCREEN_WIDTH_PX = 240;
+constexpr int SCREEN_HEIGHT_PX = 135;
+// The results band's strip along the screen's top edge: the doubled 6 x 8 font and a few pixels
+// around it. The tray lies beneath it, so no die is ever drawn under the band (ADR-0016).
+constexpr int BAND_HEIGHT_PX = 20;
+
 // A D20 about 20 mm across has an edge of about 10.5 mm. Drawn with ADR-0007's 24 px edge,
-// that is about 2.29 px/mm, so the 240 × 135 px screen frames a tray of about 105 × 59 mm.
+// that is about 2.29 px/mm, so the screen's 240 px width frames a tray 105 mm wide.
 constexpr float D20_EDGE_MM = 10.5f;
 constexpr float D6_EDGE_MM = 16.0f;
 constexpr float TRAY_WIDTH_MM = 105.0f;
-constexpr float TRAY_DEPTH_MM = 59.0f;
+constexpr float TRAY_PX_PER_MM = SCREEN_WIDTH_PX / TRAY_WIDTH_MM;
+// The screen beneath the strip, 50.3 mm: derived, so the tray's far wall stays the strip's edge.
+constexpr float TRAY_DEPTH_MM = (SCREEN_HEIGHT_PX - BAND_HEIGHT_PX) / TRAY_PX_PER_MM;
 // The glass over the tray. Higher than a D6's 27.7 mm space diagonal with room to spare, so no
 // die can wedge between the floor and the glass.
 constexpr float TRAY_HEIGHT_MM = 40.0f;

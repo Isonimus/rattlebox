@@ -22,6 +22,9 @@ struct ResultsBand {
     uint8_t     segmentCount;
 };
 
+/** @brief The strip before every die of a roll has locked: the type alone, so the player sees what the next roll throws. */
+ResultsBand typeBand(const char* typeName);
+
 /**
  * @brief The band shown once every die has locked (docs/roadmap.md, v0.1): the type, each die's
  * locked result in its die's colour, and for more than one die the total. A die can be knocked

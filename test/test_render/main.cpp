@@ -6,6 +6,9 @@
 #include "../../src/geometry/die_shape.cpp"
 #include "../../src/render/die_view.h"
 #include "../../src/render/die_view.cpp"
+#include "../../src/physics/physics_config.h"
+#include "../../src/render/tray_layout.h"
+#include "../../src/render/tray_layout.cpp"
 
 static const float EDGE_PX = 24.0f;
 static const Vec3 CENTRE_PX{120, 67, 0};
@@ -198,6 +201,27 @@ void test_rgb565_packs_the_top_bits_of_each_channel() {
     TEST_ASSERT_EQUAL_HEX16(0x8000, shadeRgb565({255, 0, 0}, 0.5f));
 }
 
+// The layout ADR-0016 decided, in the screen's own pixels: a 20 px strip over a tray as wide as the
+// 240 x 135 px screen, at ADR-0007's 24 px D20 edge.
+static const float STRIP_BOTTOM_PX = 20.0f;
+static const float SCREEN_BOTTOM_PX = 135.0f;
+static const float SCREEN_RIGHT_PX = 240.0f;
+static const float D20_EDGE_PX = 24.0f;
+static const float LAYOUT_TOLERANCE_PX = 0.01f;
+
+void test_the_tray_fills_the_screen_under_the_strip_at_the_d20s_24_px_edge() {
+    const Vec3 nearLeft = trayToScreenPx({0, 0, 0});
+    const Vec3 farRight = trayToScreenPx({TRAY_WIDTH_MM, TRAY_DEPTH_MM, 0});
+    TEST_ASSERT_FLOAT_WITHIN(LAYOUT_TOLERANCE_PX, 0, nearLeft.x);
+    TEST_ASSERT_FLOAT_WITHIN(LAYOUT_TOLERANCE_PX, SCREEN_BOTTOM_PX, nearLeft.y);
+    TEST_ASSERT_FLOAT_WITHIN(LAYOUT_TOLERANCE_PX, SCREEN_RIGHT_PX, farRight.x);
+    // The far wall is the strip's bottom edge, so no die against it is drawn under the band.
+    TEST_ASSERT_FLOAT_WITHIN(LAYOUT_TOLERANCE_PX, STRIP_BOTTOM_PX, farRight.y);
+    const Vec3 oneEdgeAlong = trayToScreenPx({D20_EDGE_MM, 0, D20_EDGE_MM});
+    TEST_ASSERT_FLOAT_WITHIN(LAYOUT_TOLERANCE_PX, D20_EDGE_PX, oneEdgeAlong.x);
+    TEST_ASSERT_FLOAT_WITHIN(LAYOUT_TOLERANCE_PX, D20_EDGE_PX, oneEdgeAlong.z);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_at_rest_eight_faces_point_up_four_edge_on_and_eight_down);
@@ -211,5 +235,6 @@ int main() {
     RUN_TEST(test_a_d6_square_to_the_camera_shows_one_square_face_with_its_corners_and_numeral);
     RUN_TEST(test_a_die_in_millimetres_draws_like_the_same_die_in_pixels);
     RUN_TEST(test_rgb565_packs_the_top_bits_of_each_channel);
+    RUN_TEST(test_the_tray_fills_the_screen_under_the_strip_at_the_d20s_24_px_edge);
     return UNITY_END();
 }

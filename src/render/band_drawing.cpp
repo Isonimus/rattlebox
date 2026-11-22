@@ -6,7 +6,6 @@ namespace {
 constexpr uint8_t TEXT_SIZE = 2;
 // drawDieNumerals draws at whatever size is set, and the dice's numerals are the font's own size.
 constexpr uint8_t DEFAULT_TEXT_SIZE = 1;
-constexpr int BAND_HEIGHT_PX = 20;
 constexpr int MARGIN_PX = 4;
 constexpr int CHIP_PADDING_PX = 3;
 constexpr int CHIP_RADIUS_PX = 3;

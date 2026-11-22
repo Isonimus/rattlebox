@@ -16,6 +16,7 @@
 #include "render/die_drawing.h"
 #include "render/die_view.h"
 #include "render/results_band.h"
+#include "render/tray_layout.h"
 #include "roll/dice_choice.h"
 #include "roll/dice_roll.h"
 #include "roll/shake_roll.h"
@@ -53,9 +54,6 @@ constexpr float ROLL_LIMIT_S = 20.0f;
 constexpr float REST_REPORT_S = 2.0f;
 
 constexpr int CANVAS_COLOR_DEPTH = 16;
-// The tray fills the screen: 240 px across 105 mm is ADR-0007's 24 px D20 edge, and the 59 mm
-// depth fills the 135 px height (src/physics/physics_config.h).
-constexpr float PX_PER_MM = 240.0f / TRAY_WIDTH_MM;
 // The render probe's palette (slice 0006): one colour per die, so the band's results match them.
 constexpr Rgb DIE_COLORS[MAX_DICE] = {{235, 225, 200}, {200, 40, 40}, {40, 90, 210}};
 constexpr Rgb TRAY_COLOR{20, 70, 40};
@@ -82,9 +80,16 @@ public:
     bool begin() override {
         lgfx::LGFX_Device& tft = _display.getDevice();
         _sprite.setColorDepth(CANVAS_COLOR_DEPTH);
+        // The tray's depth is derived from this size (ADR-0016): on another screen its walls would not
+        // be where the physics puts them, so the product stops rather than draw a tray that lies.
+        if (tft.width() != SCREEN_WIDTH_PX || tft.height() != SCREEN_HEIGHT_PX) {
+            _failureReason = "screen is not the 240x135 the tray is laid out for";
+            return false;
+        }
+        _failureReason = "no heap for the frame buffer";
         return _sprite.createSprite(tft.width(), tft.height()) != nullptr;
     }
-    const char* failureReason() const override { return "no heap for the frame buffer"; }
+    const char* failureReason() const override { return _failureReason; }
     const char* description() const override { return "16-bit, full screen"; }
 
     LGFX_Sprite& sprite() { return _sprite; }
@@ -92,6 +97,7 @@ public:
 private:
     DisplayHAL& _display;
     LGFX_Sprite _sprite;
+    const char* _failureReason = nullptr;
 };
 
 /** @brief What a roll's frames cost, kept as running figures: the StickC has no heap to spare for a buffer. */
@@ -302,11 +308,8 @@ void drawDice(LGFX_Sprite& canvas) {
     for (uint8_t i = 0; i < world.dieCount; i++) {
         const uint8_t die = order[i];
         const DieBody& body = world.dice[die];
-        // The screen's y runs down where the tray's runs up.
-        const Vec3 centrePx{body.position.x * PX_PER_MM, canvas.height() - body.position.y * PX_PER_MM,
-                            body.position.z * PX_PER_MM};
-        viewDie(*world.shape, PX_PER_MM, toRotation(body.orientation), centrePx, DIE_COLORS[die], LIGHTING,
-                NUMERAL_MIN_FACING, view);
+        viewDie(*world.shape, TRAY_PX_PER_MM, toRotation(body.orientation), trayToScreenPx(body.position),
+                DIE_COLORS[die], LIGHTING, NUMERAL_MIN_FACING, view);
         drawDieFaces(canvas, view);
         drawDieNumerals(canvas, view, packed(NUMERAL_COLOR));
     }
@@ -315,12 +318,17 @@ void drawDice(LGFX_Sprite& canvas) {
 void drawFrame(LGFX_Sprite& canvas) {
     canvas.fillScreen(packed(TRAY_COLOR));
     drawDice(canvas);
-    if (!rollReported || !everyDieLocked(results, world.dieCount)) return;
-    uint8_t numerals[MAX_DICE];
-    for (uint8_t die = 0; die < world.dieCount; die++) numerals[die] = results[die].numeral;
     const BandColors colors{packed(BAND_COLOR), packed(BAND_TEXT_COLOR), packed(NUMERAL_COLOR),
                             {packed(DIE_COLORS[0]), packed(DIE_COLORS[1]), packed(DIE_COLORS[2])}};
-    drawResultsBand(canvas, resultsBand(dieTypeName(choice.type), numerals, world.dieCount), colors);
+    // The strip is the band's own (ADR-0016): the type while the dice fly, the results once they lock.
+    const char* typeName = dieTypeName(choice.type);
+    if (!rollReported || !everyDieLocked(results, world.dieCount)) {
+        drawResultsBand(canvas, typeBand(typeName), colors);
+        return;
+    }
+    uint8_t numerals[MAX_DICE];
+    for (uint8_t die = 0; die < world.dieCount; die++) numerals[die] = results[die].numeral;
+    drawResultsBand(canvas, resultsBand(typeName, numerals, world.dieCount), colors);
 }
 
 /** @brief Start sending @p canvas to the panel by DMA and return without waiting for it. */

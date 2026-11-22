@@ -13,7 +13,7 @@ struct BandColors {
     uint16_t dice565[MAX_DICE];
 };
 
-/** @brief The device half of the band: a strip along the top edge, each die's result on a chip of its colour. */
+/** @brief The device half of the band: its own strip above the tray (ADR-0016), each die's result on a chip of its colour. */
 void drawResultsBand(LGFX_Sprite& canvas, const ResultsBand& band, const BandColors& colors);
 
 #endif // BAND_DRAWING_H

@@ -2,7 +2,8 @@
 #include "../../src/render/results_band.h"
 #include "../../src/render/results_band.cpp"
 
-// The band shown once every die locks (slice 0011): it, not the face, is the result.
+// The band shown once every die locks (slice 0011): it, not the face, is the result. Before that the
+// strip shows the type alone (slice 0017).
 
 static void assertSegment(const char* text, uint8_t die, const BandSegment& segment) {
     TEST_ASSERT_EQUAL_STRING(text, segment.text);
@@ -35,10 +36,17 @@ void test_three_d20s_at_their_highest_fit() {
     assertSegment("= 60", BAND_NO_DIE, band.segments[4]);
 }
 
+void test_before_the_dice_lock_the_strip_shows_the_type_alone() {
+    const ResultsBand band = typeBand("D6");
+    TEST_ASSERT_EQUAL_UINT8(1, band.segmentCount);
+    assertSegment("D6", BAND_NO_DIE, band.segments[0]);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_one_die_shows_the_type_and_its_result_with_no_total);
     RUN_TEST(test_two_dice_show_each_result_in_its_die_colour_and_the_total);
     RUN_TEST(test_three_d20s_at_their_highest_fit);
+    RUN_TEST(test_before_the_dice_lock_the_strip_shows_the_type_alone);
     return UNITY_END();
 }
