@@ -26,9 +26,8 @@ bool CardputerInput::fail(const char* reason) {
 }
 
 bool CardputerInput::begin() {
-    if (!cardputer_i2c::begin()) {
-        return fail("I2C bus failed to start");
-    }
+    const char* busFailure = cardputer_i2c::begin();
+    if (busFailure != nullptr) return fail(busFailure);
 
     uint8_t config = 0;
     if (!cardputer_i2c::readRegister(TCA8418_ADDRESS, REG_CFG, config)) {

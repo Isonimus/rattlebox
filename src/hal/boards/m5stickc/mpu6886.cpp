@@ -1,5 +1,6 @@
 #include "mpu6886.h"
 #include "../../delay_at_least.h"
+#include "../../gpio_i2c_lines.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <stdarg.h>
@@ -7,13 +8,10 @@
 
 namespace {
 
-constexpr int      SDA_PIN = 21;
-constexpr int      SCL_PIN = 22;
 constexpr uint32_t BUS_FREQUENCY_HZ = 400000;
 
 // Registers and values: MPU6886 datasheet, and M5Unified's MPU6886_Class::begin for
 // the sequence.
-constexpr uint8_t ADDRESS             = 0x68;
 constexpr uint8_t REG_SMPLRT_DIV      = 0x19;
 constexpr uint8_t REG_CONFIG          = 0x1A;
 constexpr uint8_t REG_GYRO_CONFIG     = 0x1B;
@@ -61,18 +59,18 @@ constexpr AxisMap STICKC_AXIS_MAP{
 static_assert(isRotation(STICKC_AXIS_MAP), "a mounted chip is rotated, never mirrored");
 
 bool writeRegister(uint8_t reg, uint8_t value) {
-    Wire.beginTransmission(ADDRESS);
+    Wire.beginTransmission(MPU6886_ADDRESS);
     Wire.write(reg);
     Wire.write(value);
     return Wire.endTransmission() == 0;
 }
 
 bool readRegisters(uint8_t reg, uint8_t* data, size_t length) {
-    Wire.beginTransmission(ADDRESS);
+    Wire.beginTransmission(MPU6886_ADDRESS);
     Wire.write(reg);
     // Repeated start: release the bus only after the read completes.
     if (Wire.endTransmission(false) != 0) return false;
-    if (Wire.requestFrom(ADDRESS, length) != length) return false;
+    if (Wire.requestFrom(MPU6886_ADDRESS, length) != length) return false;
     for (size_t i = 0; i < length; i++) data[i] = static_cast<uint8_t>(Wire.read());
     return true;
 }
@@ -97,10 +95,14 @@ bool Mpu6886::begin() {
     }
     _fullScale = fullScaleOf(_settings);
 
-    if (!Wire.begin(SDA_PIN, SCL_PIN, BUS_FREQUENCY_HZ)) return fail("I2C bus failed to start");
+    // A reset mid-read leaves the chip sending its byte into the boot's first transfer (ADR-0019).
+    GpioI2cLines lines(MPU6886_SDA_PIN, MPU6886_SCL_PIN);
+    const char* stuck = clearI2cBus(lines);
+    if (stuck != nullptr) return fail("I2C bus clear: %s", stuck);
+    if (!Wire.begin(MPU6886_SDA_PIN, MPU6886_SCL_PIN, BUS_FREQUENCY_HZ)) return fail("I2C bus failed to start");
 
     uint8_t whoAmI = 0;
-    if (!readRegisters(REG_WHO_AM_I, &whoAmI, 1)) return fail("no ACK at 0x%02X", ADDRESS);
+    if (!readRegisters(REG_WHO_AM_I, &whoAmI, 1)) return fail("no ACK at 0x%02X", MPU6886_ADDRESS);
     if (whoAmI != WHO_AM_I_MPU6886) return fail("WHO_AM_I read 0x%02X, expected 0x%02X", whoAmI, WHO_AM_I_MPU6886);
 
     // The reset's own write may go unacknowledged while the chip restarts, so only the
@@ -132,7 +134,7 @@ bool Mpu6886::begin() {
     delayAtLeastMs(GYRO_START_UP_MS);
     if (!waitForData()) return false;
 
-    snprintf(_description, sizeof(_description), "MPU6886 0x%02X accel +-%u g gyro +-%u dps at %u Hz", ADDRESS,
+    snprintf(_description, sizeof(_description), "MPU6886 0x%02X accel +-%u g gyro +-%u dps at %u Hz", MPU6886_ADDRESS,
              _settings.accelRangeG, _settings.gyroRangeDps, _settings.outputRateHz);
     return true;
 }

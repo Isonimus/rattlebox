@@ -94,7 +94,8 @@ bool Bmi270::begin() {
     }
     _fullScale = fullScaleOf(_settings);
 
-    if (!cardputer_i2c::begin()) return fail("I2C bus failed to start");
+    const char* busFailure = cardputer_i2c::begin();
+    if (busFailure != nullptr) return fail("%s", busFailure);
 
     uint8_t chipId = 0;
     if (!readRegister(REG_CHIP_ID, chipId)) return fail("no ACK at 0x%02X", ADDRESS);

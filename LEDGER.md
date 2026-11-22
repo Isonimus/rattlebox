@@ -20,12 +20,10 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 - [deferred] No CI builds both envs yet, so invariant #1 holds by review alone (ADR-0001)
 - [deferred] No binary release exists yet; the first one must meet the binary-distribution conditions in `docs/third-party-notices.md` (Bosch and LovyanGFX notices bundled, LGPL relinking for the Arduino core) (ADR-0001)
 - [audit] The `m5stickc-plus2` env builds for the generic `esp32dev` variant; its flash size and PSRAM settings were never compared with the Plus 2's, only shown to boot and run the skeleton (ADR-0003)
-- [bug] One handheld StickC boot failed `imu FAILED: no ACK at 0x68` (ESP-IDF error 259) on 2026-10-23; it did not recur in over 300 desk resets or two handheld runs, so the cause is unknown. It recurred on 2026-11-22 on the desk, on the first reset `verify:roll` made right after a flash: `i2cWriteReadNonStop(): i2c_master_transmit_receive failed: [259] ESP_ERR_INVALID_STATE` at 308 ms, then no `[boot] imu OK`; the next reset booted and rolled 100 times (ADR-0003)
 - [deferred] The tray's gravity leaves out the rotating frame's centrifugal, Euler and Coriolis terms from the gyro; adding them would stir the dice more, so the fairness test reruns if they are (ADR-0010)
 - [deferred] The three-dice fairness test (`npm run test:fairness`, 85 s on an idle machine on 2026-11-22) runs only by hand before a physics or input change merges; no CI runs it, so invariant #2's three-dice half holds by review (ADR-0010)
 - [audit] The fairness test's shakes are twelve takes from one operator on one day; record other people's shakes (slower, rotational, one-handed) and rerun the probe's shake sweep before a release (ADR-0010)
 - [audit] The shake detector's margin (0.07 each side) rests on 3 takes per gesture from one operator; re-run `scripts/imu-probe.mjs` with other people's shakes and handling before relying on it in a release (ADR-0005)
-- [audit] One of 40 Cardputer product boots at ADR-0005's settings, after the `delayAtLeastMs` fix, showed no `[boot] imu OK` line within 5 s on 2026-10-23; its log was not kept, so an IMU failure and a monitor that missed the line after USB re-enumeration are both open (ADR-0005)
 - [deferred] On-device checks (`*-verify.mjs` device halves) need a board on the port and no hardware-in-the-loop runner exists, so CI runs only their parsing tests (ADR-0003)
 
 ## Resolved

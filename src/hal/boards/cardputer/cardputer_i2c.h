@@ -11,8 +11,8 @@
  */
 namespace cardputer_i2c {
 
-/** @brief Start the bus once; later calls are no-ops. Returns false on failure. */
-bool begin();
+/** @brief Start the bus once; later calls are no-ops. Returns null once started, and why not otherwise. */
+const char* begin();
 
 /** @brief Write one 8-bit register. Returns false if the device did not ACK. */
 bool writeRegister(uint8_t deviceAddress, uint8_t reg, uint8_t value);

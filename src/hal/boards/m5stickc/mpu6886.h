@@ -6,6 +6,11 @@
 #include "../../../imu/imu_decode.h"
 #include "../../../imu/imu_settings.h"
 
+// The StickC Plus 2's internal I2C bus and the IMU's address on it.
+constexpr int     MPU6886_SDA_PIN = 21;
+constexpr int     MPU6886_SCL_PIN = 22;
+constexpr uint8_t MPU6886_ADDRESS = 0x68;
+
 /**
  * @brief The StickC Plus 2's MPU6886 on its internal I2C bus (G21 SDA, G22 SCL).
  *

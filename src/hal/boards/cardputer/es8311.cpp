@@ -24,7 +24,9 @@ static constexpr RegisterWrite SPEAKER_ENABLE_SEQUENCE[] = {
 };
 
 bool es8311BeginSpeaker() {
-    if (!cardputer_i2c::begin()) return false;
+    // The keyboard starts the bus earlier in the boot, and its failure halts the boot with the
+    // clear's reason (ADR-0019), so by here the bus is up and this call does nothing.
+    if (cardputer_i2c::begin() != nullptr) return false;
     for (const RegisterWrite& write : SPEAKER_ENABLE_SEQUENCE) {
         if (!cardputer_i2c::writeRegister(ES8311_ADDRESS, write.reg, write.value)) return false;
     }

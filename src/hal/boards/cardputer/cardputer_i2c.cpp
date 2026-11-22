@@ -1,5 +1,6 @@
 #include "cardputer_i2c.h"
 #include <Wire.h>
+#include "../../gpio_i2c_lines.h"
 
 namespace cardputer_i2c {
 
@@ -9,10 +10,14 @@ static constexpr uint32_t BUS_FREQUENCY_HZ = 400000;
 
 static bool started = false;
 
-bool begin() {
-    if (started) return true;
+const char* begin() {
+    if (started) return nullptr;
+    // A reset mid-read leaves a device sending its byte into the boot's first transfer (ADR-0019).
+    GpioI2cLines lines(SDA_PIN, SCL_PIN);
+    const char* stuck = clearI2cBus(lines);
+    if (stuck != nullptr) return stuck;
     started = Wire.begin(SDA_PIN, SCL_PIN, BUS_FREQUENCY_HZ);
-    return started;
+    return started ? nullptr : "I2C bus failed to start";
 }
 
 bool writeRegister(uint8_t deviceAddress, uint8_t reg, uint8_t value) {
