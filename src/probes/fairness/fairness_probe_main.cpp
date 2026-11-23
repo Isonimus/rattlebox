@@ -8,24 +8,27 @@
 #include "../../geometry/die_shape.h"
 #include "../../physics/die_result.h"
 #include "../../physics/physics_config.h"
+#include "../../roll/die_catalog.h"
 #include "seeded_source.h"
 #include "shaken_roll.h"
 #include "simulated_roll.h"
 
 // The fairness probe (slice 0008), a host program. scripts/fairness-probe.mjs runs it.
 //
-//   trace <D6|D8|D20> <rolls> <seed>         one die per roll, left to move for TRACE_SECONDS with
+//   trace <die> <rolls> <seed>         one die per roll, left to move for TRACE_SECONDS with
 //                                         nothing locking, to measure what the rest thresholds,
 //                                         hold time and cocked tolerance are chosen from
-//   tally <D6|D8|D20> <dice> <rolls> <seed>  rolls through the product's thresholds, counting results
-//   replay <D6|D8|D20> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>
+//   tally <die> <dice> <rolls> <seed>  rolls through the product's thresholds, counting results
+//   replay <die> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>
 //                                         dice at rest from a launch, then the IMU recording replayed
 //                                         as the tray's gravity, cut extra_s after the shake is
 //                                         detected: how often the result repeats, and whether the
 //                                         physics holds up under a real shake
-//   chain <D6|D8|D20> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...
+//   chain <die> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...
 //                                         each roll a random recording, cut at a random point, on the
 //                                         dice where the last roll left them, counting results
+//
+// <die> is a name from the die catalog (src/roll/die_catalog.cpp).
 //
 // Each prints one line per roll (trace) or per run (tally, replay, chain) for the host to aggregate.
 
@@ -106,19 +109,31 @@ float longestFalseRestS(const TraceRecorder& trace, uint32_t lastChange, float l
 }
 
 bool parseShape(const char* name, DieShape& shape) {
-    if (strcmp(name, "D6") == 0) {
-        shape = makeD6(D6_EDGE_MM);
-        return true;
+    DieType type;
+    if (!parseDieType(name, type)) return false;
+    shape = dieKind(type).shape;
+    return true;
+}
+
+/**
+ * @brief The die names a command takes, as "D6|D20", for the usage line.
+ *
+ * Read from the catalog rather than spelled out, so a die added there cannot be left out of the
+ * usage of the very commands that measure it.
+ */
+const char* dieTypeChoices() {
+    // Each name, plus its separator or the terminator.
+    static char choices[DIE_TYPE_COUNT * (DIE_NAME_MAX_CHARS + 1)] = "";
+    if (choices[0] != '\0') return choices;
+    size_t written = 0;
+    for (uint8_t index = 0; index < DIE_TYPE_COUNT; index++) {
+        const int added = snprintf(choices + written, sizeof choices - written, index > 0 ? "|%s" : "%s",
+                                   dieTypeName(static_cast<DieType>(index)));
+        // A name longer than DIE_NAME_MAX_CHARS: the usage would be silently cut short.
+        if (added < 0 || static_cast<size_t>(added) >= sizeof choices - written) abort();
+        written += static_cast<size_t>(added);
     }
-    if (strcmp(name, "D8") == 0) {
-        shape = makeD8(D8_EDGE_MM);
-        return true;
-    }
-    if (strcmp(name, "D20") == 0) {
-        shape = makeD20(D20_EDGE_MM);
-        return true;
-    }
-    return false;
+    return choices;
 }
 
 bool parseCount(const char* text, unsigned long& value) {
@@ -154,11 +169,12 @@ bool parseKick(const char* name, KickPlan& kick) {
 }
 
 int usage() {
-    fprintf(stderr, "usage: fairness_probe trace <D6|D8|D20> <rolls> <seed>\n"
-                    "       fairness_probe tally <D6|D8|D20> <dice 1-%u> <rolls> <seed>\n"
-                    "       fairness_probe replay <D6|D8|D20> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>\n"
-                    "       fairness_probe chain <D6|D8|D20> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...\n",
-            static_cast<unsigned>(MAX_DICE));
+    const char* dice = dieTypeChoices();
+    fprintf(stderr, "usage: fairness_probe trace <%s> <rolls> <seed>\n"
+                    "       fairness_probe tally <%s> <dice 1-%u> <rolls> <seed>\n"
+                    "       fairness_probe replay <%s> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>\n"
+                    "       fairness_probe chain <%s> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...\n",
+            dice, dice, static_cast<unsigned>(MAX_DICE), dice, dice);
     return EXIT_USAGE;
 }
 

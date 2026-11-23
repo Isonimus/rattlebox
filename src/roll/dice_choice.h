@@ -3,12 +3,7 @@
 
 #include <stdint.h>
 #include "../hal/input_hal.h"
-
-// In ascending order of faces: PRIMARY steps through them in this order (slice 0026), and the dice
-// still to come slot in where their face counts put them.
-enum class DieType : uint8_t { D6, D8, D20 };
-// Counted from the last type: a type added after D20 moves this to it.
-constexpr uint8_t DIE_TYPE_COUNT = static_cast<uint8_t>(DieType::D20) + 1;
+#include "die_catalog.h"
 
 /** @brief What the next roll throws: one type, one to MAX_DICE dice (docs/roadmap.md, v0.1). */
 struct DiceChoice {
@@ -31,7 +26,5 @@ struct ChoiceChange {
  * buttons reach every choice; the Cardputer's UP and DOWN add or take one die, stopping at the ends. Anything else leaves the choice as it was.
  */
 ChoiceChange applyAction(DiceChoice choice, InputAction action);
-
-const char* dieTypeName(DieType type);
 
 #endif // DICE_CHOICE_H

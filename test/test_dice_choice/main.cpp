@@ -42,12 +42,6 @@ void test_other_actions_change_nothing() {
     for (InputAction action : others) assertChange({DieType::D6, 2}, false, applyAction({DieType::D6, 2}, action));
 }
 
-void test_type_names() {
-    TEST_ASSERT_EQUAL_STRING("D6", dieTypeName(DieType::D6));
-    TEST_ASSERT_EQUAL_STRING("D8", dieTypeName(DieType::D8));
-    TEST_ASSERT_EQUAL_STRING("D20", dieTypeName(DieType::D20));
-}
-
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_boot_is_one_d20);
@@ -55,6 +49,5 @@ int main() {
     RUN_TEST(test_secondary_cycles_the_count_through_every_value);
     RUN_TEST(test_up_and_down_step_the_count_and_stop_at_the_ends);
     RUN_TEST(test_other_actions_change_nothing);
-    RUN_TEST(test_type_names);
     return UNITY_END();
 }
