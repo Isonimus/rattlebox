@@ -46,7 +46,9 @@ constexpr uint32_t FLOOR_STEPS = stepsIn(1.0f);
 // A tally roll still moving after this long has a die the physics never brings to rest.
 constexpr float TALLY_TIME_LIMIT_S = 20.0f;
 // Nothing locks while tracing, so every step of the roll is recorded.
-constexpr RestThresholds NEVER_LOCK{0, 0, TRACE_SECONDS * 2, 0};
+// Nothing is ever below zero speed, so no die locks however long it lies still, whatever hold
+// its body carries.
+constexpr RestThresholds NEVER_LOCK{0, 0, 0};
 
 // The candidate thresholds a trace measures against: from below the resting floor to well
 // above a die rocking on an edge.
@@ -185,8 +187,10 @@ int runTrace(const char* name, const DieShape& shape, unsigned long rolls, unsig
     for (size_t i = 0; i < LINEAR_CANDIDATES; i++) printf(i ? ",%g" : "%g", CANDIDATE_LINEAR_MM_PER_S[i]);
     printf(" angular=");
     for (size_t i = 0; i < ANGULAR_CANDIDATES; i++) printf(i ? ",%g" : "%g", CANDIDATE_ANGULAR_RAD_PER_S[i]);
-    // What the product locks by, so the script checks the hold against the false rests just traced.
-    printf(" product_linear=%g product_angular=%g product_hold_s=%g\n", REST_LINEAR_MM_PER_S, REST_ANGULAR_RAD_PER_S, REST_HOLD_S);
+    // What the product locks this die by, so the script checks its hold against the false rests
+    // just traced for it. The hold is the die's own (ADR-0028), read off the body being traced.
+    printf(" product_linear=%g product_angular=%g product_hold_s=%g\n", REST_LINEAR_MM_PER_S, REST_ANGULAR_RAD_PER_S,
+           static_cast<double>(shape.holdS));
 
     SeededSource source(seed);
     for (unsigned long roll = 0; roll < rolls; roll++) {

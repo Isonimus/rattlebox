@@ -10,15 +10,17 @@
 struct RestThresholds {
     float linearMmPerS;
     float angularRadPerS;
-    /** @brief How long both speeds must stay below their thresholds. */
-    float holdS;
     /** @brief The widest angle between the up face's normal and straight up at which the die still lies flat. */
     float cockedTiltRad;
 };
 
-/** @brief The thresholds the product locks results with, measured by the fairness probe (slice 0008). */
-constexpr RestThresholds PRODUCT_REST_THRESHOLDS{REST_LINEAR_MM_PER_S, REST_ANGULAR_RAD_PER_S, REST_HOLD_S,
-                                                 COCKED_TILT_RAD};
+/**
+ * @brief The thresholds the product locks results with, measured by the fairness probe (slice 0008).
+ *
+ * What every die shares. How long a die must hold still is not shared: it is `DieShape::holdS`,
+ * measured per die (ADR-0028).
+ */
+constexpr RestThresholds PRODUCT_REST_THRESHOLDS{REST_LINEAR_MM_PER_S, REST_ANGULAR_RAD_PER_S, COCKED_TILT_RAD};
 
 enum class DieState : uint8_t {
     /** @brief Moving, or not still for the hold time yet. */

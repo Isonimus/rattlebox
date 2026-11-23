@@ -14,7 +14,9 @@ import {
   ROLLS,
   summarizeType,
   summaryMarkdown,
+  TYPE_ORDER,
 } from './roll-verify.mjs';
+import { FACES } from './fairness-probe.mjs';
 
 const BOOT_LINES = [
   '[boot] power OK: HOLD latch on G4',
@@ -38,6 +40,16 @@ function evenRolls(type, faces, rolls) {
     result.push({ locked: { kind: 'locked', type, count: 3, results, shown: results, seconds: 0.5, nudges: 0, detections: 0 }, frame: frame() });
   }
   return result;
+}
+
+/**
+ * Every type rolled and fair, with `replaced` standing in for the ones a test is about.
+ *
+ * Built from TYPE_ORDER rather than listed, so a die added to the product does not quietly
+ * leave these checking a run that is missing one.
+ */
+function everyTypeRolledEvenly(replaced = {}) {
+  return TYPE_ORDER.map((type) => summarizeType(type, replaced[type] ?? evenRolls(type, FACES[type], ROLLS[type])));
 }
 
 test('the product\'s roll and frame lines parse', () => {
@@ -100,7 +112,9 @@ test('a roll that never locked is an error line', () => {
 test('the commands to reach a choice step the type forward through the cycle and cycle the count forward', () => {
   assert.deepEqual(commandsToReach({ type: 'D20', count: 1 }, { type: 'D6', count: 3 }), ['T', 'C', 'C']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D8', count: 3 }), ['T']);
-  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D20', count: 3 }), ['T', 'T']);
+  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D10', count: 3 }), ['T', 'T']);
+  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D20', count: 3 }), ['T', 'T', 'T']);
+  assert.deepEqual(commandsToReach({ type: 'D10', count: 3 }, { type: 'D6', count: 3 }), ['T', 'T']);
   assert.deepEqual(commandsToReach({ type: 'D20', count: 3 }, { type: 'D8', count: 3 }), ['T', 'T']);
   assert.throws(() => commandsToReach({ type: 'D20', count: 1 }, { type: 'D12', count: 1 }), /no die type D12/);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D6', count: 2 }), ['C', 'C']);
@@ -129,18 +143,13 @@ test('a type\'s summary counts every result, the ones knocked over after locking
 
 test('a run with every roll locked and even results passes', () => {
   const parsed = BOOT_LINES.map(parseRollLine);
-  const types = [
-    summarizeType('D6', evenRolls('D6', 6, ROLLS.D6)), summarizeType('D8', evenRolls('D8', 8, ROLLS.D8)),
-    summarizeType('D20', evenRolls('D20', 20, ROLLS.D20)),
-  ];
-  assert.deepEqual(checkRun(parsed, types), []);
+  assert.deepEqual(checkRun(parsed, everyTypeRolledEvenly()), []);
 });
 
 test('results all on one face fail chi-square, as the host miscompile turned every launch', () => {
   const parsed = BOOT_LINES.map(parseRollLine);
   const stuck = evenRolls('D20', 20, ROLLS.D20).map((roll) => ({ ...roll, locked: { ...roll.locked, results: [7, 7, 7], shown: [7, 7, 7] } }));
-  const types = [summarizeType('D6', evenRolls('D6', 6, ROLLS.D6)), summarizeType('D8', evenRolls('D8', 8, ROLLS.D8)), summarizeType('D20', stuck)];
-  const failures = checkRun(parsed, types);
+  const failures = checkRun(parsed, everyTypeRolledEvenly({ D20: stuck }));
   assert.equal(failures.length, 1);
   assert.match(failures[0], /^D20: chi-square/);
 });
@@ -149,8 +158,7 @@ test('rolls that lost IMU samples fail their type', () => {
   // One sample in ten lost across every D6 roll.
   const parsed = BOOT_LINES.map(parseRollLine);
   const lossy = evenRolls('D6', 6, ROLLS.D6).map((roll) => ({ ...roll, frame: { ...roll.frame, imuSpanUs: 1100000 } }));
-  const types = [summarizeType('D6', lossy), summarizeType('D8', evenRolls('D8', 8, ROLLS.D8)), summarizeType('D20', evenRolls('D20', 20, ROLLS.D20))];
-  assert.deepEqual(checkRun(parsed, types), ['D6: IMU samples at 90.0 Hz, under 98% of 100 Hz']);
+  assert.deepEqual(checkRun(parsed, everyTypeRolledEvenly({ D6: lossy })), ['D6: IMU samples at 90.0 Hz, under 98% of 100 Hz']);
 });
 
 test('a type short of its rolls, an error line and a missing entropy source each fail', () => {

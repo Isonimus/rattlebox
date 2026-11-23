@@ -157,7 +157,7 @@ void test_no_die_locks_while_the_shake_goes_on() {
     TEST_ASSERT_TRUE(scene.shakeRoll.shaking());
     scene.world.gravity = STRAIGHT_DOWN;
     scene.world.dice[0] = {MID_TRAY_MM, {0, 0, 0}, Quaternion{1, 0, 0, 0}, {0, 0, 0}};
-    const uint32_t steps = 4 * stepsIn(THRESHOLDS.holdS);
+    const uint32_t steps = 4 * stepsIn(D20.holdS);
     for (uint32_t step = 0; step < steps; step++) {
         TEST_ASSERT_EQUAL_UINT8(0, scene.shakeRoll.step(scene.world, scene.results, scene.source, THRESHOLDS));
         scene.world.dice[0].position = MID_TRAY_MM;

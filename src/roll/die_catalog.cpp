@@ -22,6 +22,7 @@ const DieKind* catalog() {
     static const DieKind KINDS[] = {
         {"D6", makeD6(D6_EDGE_MM)},
         {"D8", makeD8(D8_EDGE_MM)},
+        {"D10", makeD10(D10_CIRCUMRADIUS_MM)},
         {"D20", makeD20(D20_EDGE_MM)},
     };
     static_assert(sizeof(KINDS) / sizeof(KINDS[0]) == DIE_TYPE_COUNT, "one row per die type");

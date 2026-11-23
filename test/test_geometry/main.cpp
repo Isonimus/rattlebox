@@ -13,6 +13,9 @@ static const uint8_t FACES_PER_EDGE = 2;
 // Euler's formula for a closed solid with no holes: V − E + F = 2.
 static const int EULER_CHARACTERISTIC = 2;
 static const float QUARTER_TURN_RAD = 1.5707963f;
+static const uint8_t AXIS_X = 0;
+static const uint8_t AXIS_Y = 1;
+static const uint8_t AXIS_COUNT = 3;
 
 struct Expected {
     const char* name;
@@ -23,6 +26,7 @@ struct Expected {
 
 static const Expected D6{"D6", 8, 6, 4};
 static const Expected D8{"D8", 6, 8, 3};
+static const Expected D10{"D10", 12, 10, 4};
 static const Expected D20{"D20", 12, 20, 3};
 
 static void assertVecEqual(Vec3 expected, Vec3 actual) {
@@ -105,14 +109,16 @@ static void assertNumeralsRunOneToNAndOppositeFacesSumToNPlusOne(const DieShape&
     }
 }
 
+static float coordinate(Vec3 v, uint8_t axis) { return axis == AXIS_X ? v.x : (axis == AXIS_Y ? v.y : v.z); }
+
 /**
- * @brief The solid's moment of inertia about z per unit mass, integrated from its faces: each
- * face fans into tetrahedra from the centre, and a tetrahedron (0, a, b, c) of volume V has
+ * @brief The solid's moment of inertia about @p axis per unit mass, integrated from its faces:
+ * each face fans into tetrahedra from the centre, and a tetrahedron (0, a, b, c) of volume V has
  * ∫x² dV = V/10 (a² + b² + c² + ab + ac + bc) in each coordinate.
  */
-static float integratedInertiaPerMassAboutZ(const DieShape& shape) {
+static float integratedInertiaPerMassAbout(const DieShape& shape, uint8_t axis) {
     float volume = 0;
-    float secondMomentXY = 0;
+    float secondMoment = 0;
     for (uint8_t i = 0; i < shape.faceCount; i++) {
         const DieFace& face = shape.faces[i];
         const Vec3 a = shape.vertices[face.corners[0]];
@@ -120,24 +126,56 @@ static float integratedInertiaPerMassAboutZ(const DieShape& shape) {
             const Vec3 b = shape.vertices[face.corners[corner]];
             const Vec3 c = shape.vertices[face.corners[corner + 1]];
             const float tetraVolume = dot(a, cross(b, c)) / 6;
-            auto moment = [&](float p, float q, float r) {
-                return tetraVolume / 10 * (p * p + q * q + r * r + p * q + p * r + q * r);
-            };
             volume += tetraVolume;
-            secondMomentXY += moment(a.x, b.x, c.x) + moment(a.y, b.y, c.y);
+            // The moment about one axis sums the second moments of the other two coordinates.
+            for (uint8_t other = AXIS_X; other < AXIS_COUNT; other++) {
+                if (other == axis) continue;
+                const float p = coordinate(a, other), q = coordinate(b, other), r = coordinate(c, other);
+                secondMoment += tetraVolume / 10 * (p * p + q * q + r * r + p * q + p * r + q * r);
+            }
         }
     }
-    return secondMomentXY / volume;
+    return secondMoment / volume;
 }
 
+/**
+ * @brief Every axis, not just one: DieShape carries a single inertia for all three, which for a
+ * die that is not a Platonic solid is a claim about the shape and not a property of its class.
+ */
 static void assertInertiaMatchesTheIntegratedBody(const DieShape& shape) {
-    const float integrated = integratedInertiaPerMassAboutZ(shape);
-    TEST_ASSERT_FLOAT_WITHIN(integrated * TOLERANCE, integrated, shape.inertiaPerMass);
+    for (uint8_t axis = AXIS_X; axis < AXIS_COUNT; axis++) {
+        const float integrated = integratedInertiaPerMassAbout(shape, axis);
+        TEST_ASSERT_FLOAT_WITHIN(integrated * TOLERANCE, integrated, shape.inertiaPerMass);
+    }
 }
 
 static void assertTheCircumradiusReachesEveryVertex(const DieShape& shape) {
     for (uint8_t i = 0; i < shape.vertexCount; i++) {
         TEST_ASSERT_FLOAT_WITHIN(TOLERANCE, shape.circumradius, length(shape.vertices[i]));
+    }
+}
+
+/** @brief The bounding sphere holds the whole die, and is not larger than it needs to be. */
+static void assertTheCircumradiusIsTheFurthestVertex(const DieShape& shape) {
+    float furthest = 0;
+    for (uint8_t i = 0; i < shape.vertexCount; i++) {
+        const float reach = length(shape.vertices[i]);
+        TEST_ASSERT_TRUE_MESSAGE(reach <= shape.circumradius + TOLERANCE, "a vertex escapes the bounding sphere");
+        if (reach > furthest) furthest = reach;
+    }
+    TEST_ASSERT_FLOAT_WITHIN(TOLERANCE, furthest, shape.circumradius);
+}
+
+/**
+ * @brief Every face the same distance from the centre.
+ *
+ * This is what makes a die that is not regular still fair: it rests on any face the same way,
+ * so no face is geometrically privileged (slice 0027).
+ */
+static void assertEveryFaceIsTheSameDistanceFromTheCentre(const DieShape& shape) {
+    const float inradius = dot(shape.faces[0].normal, faceCentre(shape, 0));
+    for (uint8_t i = 0; i < shape.faceCount; i++) {
+        TEST_ASSERT_FLOAT_WITHIN(TOLERANCE, inradius, dot(shape.faces[i].normal, faceCentre(shape, i)));
     }
 }
 
@@ -149,6 +187,24 @@ static void assertRegularSolid(const DieShape& shape, const Expected& expected) 
     assertNumeralsRunOneToNAndOppositeFacesSumToNPlusOne(shape);
     assertInertiaMatchesTheIntegratedBody(shape);
     assertTheCircumradiusReachesEveryVertex(shape);
+    assertEveryFaceIsTheSameDistanceFromTheCentre(shape);
+}
+
+/**
+ * @brief A die whose faces are all alike but whose edges and vertices are not.
+ *
+ * The D10 is one: its faces are kites, so it has two edge lengths, and its apexes reach further
+ * than its ring. What a die actually needs is that every face is alike, which is checked here;
+ * the regular dice keep the stricter assertion above.
+ */
+static void assertIsohedralSolid(const DieShape& shape, const Expected& expected) {
+    assertCounts(shape, expected);
+    assertTheFacesCloseTheBody(shape);
+    assertEveryFaceIsFlatWindsOutwardAndCarriesItsUnitNormal(shape);
+    assertNumeralsRunOneToNAndOppositeFacesSumToNPlusOne(shape);
+    assertInertiaMatchesTheIntegratedBody(shape);
+    assertTheCircumradiusIsTheFurthestVertex(shape);
+    assertEveryFaceIsTheSameDistanceFromTheCentre(shape);
 }
 
 void test_the_d6_is_a_closed_outward_cube_with_opposites_summing_to_7() {
@@ -157,6 +213,38 @@ void test_the_d6_is_a_closed_outward_cube_with_opposites_summing_to_7() {
 
 void test_the_d8_is_a_closed_outward_octahedron_with_opposites_summing_to_9() {
     assertRegularSolid(makeD8(EDGE), D8);
+}
+
+void test_the_d10_is_a_closed_outward_trapezohedron_with_opposites_summing_to_11() {
+    assertIsohedralSolid(makeD10(EDGE), D10);
+}
+
+void test_the_d10_has_two_edge_lengths_in_adjacent_pairs_so_each_face_is_a_kite() {
+    const DieShape d10 = makeD10(EDGE);
+    for (uint8_t i = 0; i < d10.faceCount; i++) {
+        const DieFace& face = d10.faces[i];
+        float side[FACE_MAX_CORNERS];
+        for (uint8_t corner = 0; corner < face.cornerCount; corner++) {
+            side[corner] = length(d10.vertices[face.corners[(corner + 1) % face.cornerCount]] -
+                                  d10.vertices[face.corners[corner]]);
+        }
+        // A kite's two equal pairs are adjacent, not opposite; which pair the corner list starts
+        // on depends on the winding, so either split is a kite and an opposite split is not.
+        const bool firstSplit = fabsf(side[0] - side[1]) < TOLERANCE && fabsf(side[2] - side[3]) < TOLERANCE;
+        const bool secondSplit = fabsf(side[1] - side[2]) < TOLERANCE && fabsf(side[3] - side[0]) < TOLERANCE;
+        TEST_ASSERT_TRUE_MESSAGE(firstSplit || secondSplit, "a D10 face is not a kite");
+    }
+}
+
+void test_the_d10s_apexes_reach_further_than_its_ring_so_its_circumradius_is_not_every_vertex() {
+    const DieShape d10 = makeD10(EDGE);
+    // The apexes sit on the z axis at the circumradius; every other vertex is strictly inside it.
+    uint8_t atTheCircumradius = 0;
+    for (uint8_t i = 0; i < d10.vertexCount; i++) {
+        if (fabsf(length(d10.vertices[i]) - d10.circumradius) < TOLERANCE) atTheCircumradius++;
+    }
+    TEST_ASSERT_EQUAL_UINT8(2, atTheCircumradius);
+    TEST_ASSERT_FLOAT_WITHIN(TOLERANCE, EDGE, d10.circumradius);
 }
 
 void test_the_d20_is_a_closed_outward_icosahedron_with_opposites_summing_to_21() {
@@ -192,6 +280,9 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_the_d6_is_a_closed_outward_cube_with_opposites_summing_to_7);
     RUN_TEST(test_the_d8_is_a_closed_outward_octahedron_with_opposites_summing_to_9);
+    RUN_TEST(test_the_d10_is_a_closed_outward_trapezohedron_with_opposites_summing_to_11);
+    RUN_TEST(test_the_d10_has_two_edge_lengths_in_adjacent_pairs_so_each_face_is_a_kite);
+    RUN_TEST(test_the_d10s_apexes_reach_further_than_its_ring_so_its_circumradius_is_not_every_vertex);
     RUN_TEST(test_the_d20_is_a_closed_outward_icosahedron_with_opposites_summing_to_21);
     RUN_TEST(test_a_face_centre_is_the_mean_of_its_corners);
     RUN_TEST(test_a_quarter_turn_about_z_takes_x_to_y);

@@ -10,9 +10,15 @@ decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
 - **The D8.** An eight-sided die, rolled one to three at a time like the others and as wide as the
   D20. It passed the same fairness test over 5,100 simulated results. `Enter` or button A now steps
   through the types in order, D6, D8, D20 and back to D6, where it switched between D6 and D20.
-- **Results lock 20 ms later**, 0.17 s after a die comes to rest instead of 0.15 s: a D8 can pause
-  longer than the other dice before tipping onto another face, and the wait must outlast that
-  pause with room to spare.
+- **The D10.** A ten-sided die, rolled one to three at a time like the others and as wide as the
+  D20. It reads 1 to 10, so the face a printed D10 marks 0 shows as 10 and three of them total 3 to
+  30. It passed the same fairness test over 7,000 simulated results. The type order is now D6, D8,
+  D10, D20.
+- **Each die waits its own time before its result locks**, where every die used to wait the same
+  0.15 s. How long a die can balance on an edge before it topples depends on its shape, so the
+  wait is now measured per die: 0.04 s for a D6, 0.16 s for a D20, 0.17 s for a D8 and 0.21 s for
+  a D10. A D6 settles 110 ms sooner than it did in v0.1.1 and a D20 10 ms sooner, and a new die
+  no longer slows down the dice already there.
 
 ## v0.1.1 (2026-11-23)
 

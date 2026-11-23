@@ -18,7 +18,8 @@ void test_boot_is_one_d20() {
 
 void test_primary_steps_the_type_up_wraps_round_and_keeps_the_count() {
     assertChange({DieType::D8, 2}, true, applyAction({DieType::D6, 2}, InputAction::PRIMARY));
-    assertChange({DieType::D20, 2}, true, applyAction({DieType::D8, 2}, InputAction::PRIMARY));
+    assertChange({DieType::D10, 2}, true, applyAction({DieType::D8, 2}, InputAction::PRIMARY));
+    assertChange({DieType::D20, 2}, true, applyAction({DieType::D10, 2}, InputAction::PRIMARY));
     assertChange({DieType::D6, 2}, true, applyAction({DieType::D20, 2}, InputAction::PRIMARY));
 }
 

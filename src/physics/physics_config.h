@@ -41,6 +41,9 @@ constexpr float D6_EDGE_MM = 16.0f;
 constexpr float ICOSAHEDRON_CIRCUMRADIUS_PER_EDGE = 0.9510565f;
 constexpr float OCTAHEDRON_EDGE_PER_CIRCUMRADIUS = 1.4142136f;
 constexpr float D8_EDGE_MM = D20_EDGE_MM * ICOSAHEDRON_CIRCUMRADIUS_PER_EDGE * OCTAHEDRON_EDGE_PER_CIRCUMRADIUS;
+// The D10 spans that same 20 mm, and is given its circumradius directly because a kite has two
+// edge lengths and so the die has no one edge to size it by (slice 0027).
+constexpr float D10_CIRCUMRADIUS_MM = D20_EDGE_MM * ICOSAHEDRON_CIRCUMRADIUS_PER_EDGE;
 constexpr float TRAY_WIDTH_MM = 105.0f;
 constexpr float TRAY_PX_PER_MM = SCREEN_WIDTH_PX / TRAY_WIDTH_MM;
 // The screen beneath the strip, 50.3 mm: derived, so the tray's far wall stays the strip's edge.
@@ -86,12 +89,16 @@ constexpr uint8_t SOLVER_ITERATIONS = 10;
 // Measured by the fairness probe's trace (slice 0008): 2000 rolls of each die, left alone for 6 s.
 // A die at rest moved at most 0.00016 mm/s and 0.00002 rad/s, far below any threshold here. Below
 // 5 mm/s and 0.5 rad/s, the longest pause after which a die still tipped onto another face was
-// 0.037 s (D20) and 0.033 s (D6); the hold was four times that, 0.15 s. 2000 D8 rolls (slice 0026)
-// paused 0.0417 s, so the hold is now four times the D8's, rounded up. scripts/fairness-probe.mjs
-// fails a die whose traced pause the hold does not outlast four times over.
+// 0.037 s (D20) and 0.033 s (D6) when slice 0008 set these two speeds. The hold must outlast that
+// pause four times over, and scripts/fairness-probe.mjs fails a die whose traced pause it does
+// not. The latest trace, over the physics as it stands, reads 0.0375 s (D20), 0.0083 s (D6),
+// 0.0417 s (D8) and 0.0500 s (D10): the D6 settles faster than it did, which is why its hold is
+// now so much shorter than the rest (ADR-0028). The two speeds above are unchanged by that.
 constexpr float REST_LINEAR_MM_PER_S = 5.0f;
 constexpr float REST_ANGULAR_RAD_PER_S = 0.5f;
-constexpr float REST_HOLD_S = 0.17f;
+// How long a die must stay below those two speeds is not here, and is not one number: those
+// pauses differ by six times across the dice, so the hold is measured per die and carried on its
+// body as DieShape::holdS (ADR-0028). One hold made every die wait out the worst of them.
 // At rest, the up face's normal was at most 0.229° from straight up on dice lying flat and at
 // least 1.085° on dice propped on a wall: 0.5° sits in the gap.
 constexpr float RAD_PER_DEG = 3.14159265f / 180;

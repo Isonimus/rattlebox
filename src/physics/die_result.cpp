@@ -35,7 +35,8 @@ DieResult updateResult(DieResult result, const DieBody& body, const DieShape& sh
     if (!still) return startRoll();
 
     result.stillS += PHYSICS_STEP_S;
-    if (result.stillS < thresholds.holdS) return result;
+    // The hold is the die's own, not the thresholds' (ADR-0028).
+    if (result.stillS < shape.holdS) return result;
 
     const UpFace top = upFace(shape, body.orientation);
     if (top.tiltRad > thresholds.cockedTiltRad) {

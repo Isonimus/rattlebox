@@ -4,6 +4,16 @@ namespace {
 
 constexpr float GOLDEN_RATIO = 1.6180339887f;
 
+// Each die's lock hold: the next hundredth of a second strictly above four times the longest
+// pause after which that die still tipped onto another face, over 2,000 traced rolls
+// (ADR-0028, scripts/fairness-probe.mjs). They live here, with the dice, because how long a body
+// can balance on an edge before it goes over is a fact about the body, like its inertia; a
+// single product-wide hold made every die wait out the worst of them.
+constexpr float D6_HOLD_S = 0.04f;
+constexpr float D8_HOLD_S = 0.17f;
+constexpr float D10_HOLD_S = 0.21f;
+constexpr float D20_HOLD_S = 0.16f;
+
 // ---- D6
 
 constexpr uint8_t D6_VERTEX_COUNT = 8;
@@ -110,6 +120,42 @@ DieFace octantFace(const Octant& octant) {
     return triangleFace(mirrored ? Triangle{x, z, y} : Triangle{x, y, z}, octant.numeral);
 }
 
+// ---- D10
+
+constexpr uint8_t D10_VERTEX_COUNT = 12;
+constexpr uint8_t D10_FACE_COUNT = 10;
+constexpr uint8_t KITE_CORNERS = 4;
+constexpr uint8_t D10_OPPOSITE_NUMERAL_SUM = D10_FACE_COUNT + 1;
+// Two apexes on the z axis, then one zigzag ring of ten between them.
+constexpr uint8_t D10_TOP_APEX = 0;
+constexpr uint8_t D10_BOTTOM_APEX = 1;
+constexpr uint8_t D10_FIRST_RING = 2;
+constexpr uint8_t D10_RING_COUNT = 10;
+constexpr uint8_t D10_FACES_PER_APEX = D10_RING_COUNT / 2;
+// Named for this die rather than as a bare TWO_PI: a test that includes two source files merges
+// their anonymous namespaces, and launch.cpp already has a turn of its own.
+constexpr float D10_FULL_TURN_RAD = 6.2831853072f;
+constexpr float D10_RING_STEP_RAD = D10_FULL_TURN_RAD / D10_RING_COUNT;
+
+// A pentagonal trapezohedron's ring lies at this fraction of its apex height whatever its
+// proportion: 1 − 2/√5, which scripts/die-shape-probe.mjs confirms across the whole family.
+constexpr float TRAPEZOHEDRON_RING_Z_PER_CIRCUMRADIUS = 0.1055728090f;
+// The one number that picks this D10 out of that family. A trapezohedron is not Platonic, so
+// its inertia is a tensor in general and DieShape's single inertiaPerMass would be a lie the
+// contact solver cannot correct. At this ring radius the tensor is isotropic, measured to
+// 1.8e-18 on its off-diagonal terms, so the scalar is exact (slice 0027,
+// scripts/die-shape-probe.mjs).
+constexpr float D10_RING_RADIUS_PER_CIRCUMRADIUS = 0.8484859720f;
+// And at that proportion, I = 0.2022291 m R² about every axis.
+constexpr float D10_INERTIA_PER_MASS_CIRCUMRADIUS_SQUARED = 0.2022291236f;
+
+/** @brief Ring vertex @p step, counted round from the first and wrapping. */
+uint8_t ringVertex(uint8_t step) { return D10_FIRST_RING + step % D10_RING_COUNT; }
+
+DieFace kiteFace(uint8_t apex, uint8_t near, uint8_t far, uint8_t alsoNear, uint8_t numeral) {
+    return {{apex, near, far, alsoNear}, KITE_CORNERS, {}, numeral};
+}
+
 // ---- shared
 
 /** @brief Fill in what follows from the vertices and faces: normals and the bounding radius. */
@@ -119,8 +165,13 @@ void finish(DieShape& shape) {
         const Vec3 a = shape.vertices[face.corners[0]];
         face.normal = normalized(cross(shape.vertices[face.corners[1]] - a, shape.vertices[face.corners[2]] - a));
     }
-    // Every vertex of a regular solid is equally far from its centre.
-    shape.circumradius = length(shape.vertices[0]);
+    // The furthest vertex, not simply the first: a D10's apexes reach further than its ring, so
+    // taking vertex 0 would hand the dice-to-dice test a sphere some of the die pokes out of.
+    shape.circumradius = 0;
+    for (uint8_t i = 0; i < shape.vertexCount; i++) {
+        const float reach = length(shape.vertices[i]);
+        if (reach > shape.circumradius) shape.circumradius = reach;
+    }
 }
 
 } // namespace
@@ -141,6 +192,7 @@ DieShape makeD6(float edgeLength) {
         face.numeral = square.numeral;
     }
     shape.inertiaPerMass = CUBE_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
+    shape.holdS = D6_HOLD_S;
     finish(shape);
     return shape;
 }
@@ -159,6 +211,7 @@ DieShape makeD8(float edgeLength) {
     shape.faceCount = D8_FACE_COUNT;
     for (uint8_t i = 0; i < D8_FACE_COUNT; i++) shape.faces[i] = octantFace(D8_OCTANTS[i]);
     shape.inertiaPerMass = OCTAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
+    shape.holdS = D8_HOLD_S;
     finish(shape);
     return shape;
 }
@@ -182,6 +235,40 @@ DieShape makeD20(float edgeLength) {
         shape.faces[i + HALF_FACES] = triangleFace(opposite, D20_OPPOSITE_NUMERAL_SUM - numeral);
     }
     shape.inertiaPerMass = ICOSAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
+    shape.holdS = D20_HOLD_S;
+    finish(shape);
+    return shape;
+}
+
+DieShape makeD10(float circumradius) {
+    DieShape shape{};
+    shape.vertexCount = D10_VERTEX_COUNT;
+    shape.vertices[D10_TOP_APEX] = {0, 0, circumradius};
+    shape.vertices[D10_BOTTOM_APEX] = {0, 0, -circumradius};
+    const float ringRadius = circumradius * D10_RING_RADIUS_PER_CIRCUMRADIUS;
+    const float ringZ = circumradius * TRAPEZOHEDRON_RING_Z_PER_CIRCUMRADIUS;
+    for (uint8_t step = 0; step < D10_RING_COUNT; step++) {
+        const float angle = D10_RING_STEP_RAD * (step + 1);
+        // The ring zigzags: the even steps are the corners the top apex's kites reach down to,
+        // the odd ones the corners the bottom apex's kites reach up to.
+        const float z = (step % 2 == 0) ? ringZ : -ringZ;
+        shape.vertices[ringVertex(step)] = {ringRadius * cosf(angle), ringRadius * sinf(angle), z};
+    }
+
+    shape.faceCount = D10_FACE_COUNT;
+    for (uint8_t i = 0; i < D10_FACES_PER_APEX; i++) {
+        const uint8_t step = 2 * i;
+        const uint8_t numeral = i + 1;
+        shape.faces[i] = kiteFace(D10_TOP_APEX, ringVertex(step), ringVertex(step + 1), ringVertex(step + 2), numeral);
+        // The solid is centrally symmetric, so the opposite face is this one's corners through
+        // the centre: a ring vertex five steps round, and the other apex. Mirroring reverses the
+        // winding, so the corners are laid down the other way to keep it outward.
+        shape.faces[i + D10_FACES_PER_APEX] =
+            kiteFace(D10_BOTTOM_APEX, ringVertex(step + 7), ringVertex(step + 6), ringVertex(step + 5),
+                     D10_OPPOSITE_NUMERAL_SUM - numeral);
+    }
+    shape.inertiaPerMass = D10_INERTIA_PER_MASS_CIRCUMRADIUS_SQUARED * circumradius * circumradius;
+    shape.holdS = D10_HOLD_S;
     finish(shape);
     return shape;
 }

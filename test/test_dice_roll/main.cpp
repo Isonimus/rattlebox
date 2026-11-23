@@ -20,7 +20,6 @@
 
 static const uint64_t SEED = 1;
 static const RestThresholds THRESHOLDS = PRODUCT_REST_THRESHOLDS;
-static const uint32_t HOLD_STEPS = stepsIn(THRESHOLDS.holdS);
 static const uint8_t TOP_FACE = 7;
 // A lean well past the cocked tolerance, as a die propped on a wall measured at 1° to 28°.
 static const float PROPPED_TILT_RAD = 10 * RAD_PER_DEG;
@@ -28,6 +27,20 @@ static const float PROPPED_TILT_RAD = 10 * RAD_PER_DEG;
 static const Vec3 MID_TRAY_MM{TRAY_WIDTH_MM / 2, TRAY_DEPTH_MM / 2, 0};
 
 static const DieShape D20 = makeD20(D20_EDGE_MM);
+
+/**
+ * @brief Steps of stillness before a die of this hold locks, counted the way the product counts:
+ * it adds a step to stillS and compares, so a hold that is not a whole number of steps takes the
+ * step that passes it. Rounding the hold to the nearest step instead can land just under it.
+ */
+static uint32_t stepsToHold(float holdS) {
+    uint32_t steps = 0;
+    for (float stillS = 0; stillS < holdS; stillS += PHYSICS_STEP_S) steps++;
+    return steps;
+}
+
+// The hold is the die's own now, not one the thresholds carry for every die (ADR-0028).
+static const uint32_t HOLD_STEPS = stepsToHold(D20.holdS);
 
 static Quaternion faceUp(const DieShape& shape, uint8_t face) {
     const Vec3 normal = shape.faces[face].normal;

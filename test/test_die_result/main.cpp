@@ -17,7 +17,6 @@
 
 static const float TOLERANCE = 1e-4f;
 static const RestThresholds THRESHOLDS = PRODUCT_REST_THRESHOLDS;
-static const uint32_t HOLD_STEPS = stepsIn(THRESHOLDS.holdS);
 static const uint32_t SECOND = stepsIn(1.0f);
 static const uint8_t TOP_FACE = 7;
 // A lean well past the cocked tolerance, as a die propped on a wall measured at 1° to 28°.
@@ -25,6 +24,20 @@ static const float PROPPED_TILT_RAD = 10 * RAD_PER_DEG;
 static const float STRIKE_MM_PER_S = 2000.0f;
 
 static const DieShape D20 = makeD20(D20_EDGE_MM);
+
+/**
+ * @brief Steps of stillness before a die of this hold locks, counted the way the product counts:
+ * it adds a step to stillS and compares, so a hold that is not a whole number of steps takes the
+ * step that passes it. Rounding the hold to the nearest step instead can land just under it.
+ */
+static uint32_t stepsToHold(float holdS) {
+    uint32_t steps = 0;
+    for (float stillS = 0; stillS < holdS; stillS += PHYSICS_STEP_S) steps++;
+    return steps;
+}
+
+// The hold is the die's own now, not one the thresholds carry for every die (ADR-0028).
+static const uint32_t HOLD_STEPS = stepsToHold(D20.holdS);
 
 /** @brief The orientation that turns @p face of @p shape straight toward the glass. */
 static Quaternion faceUp(const DieShape& shape, uint8_t face) {
@@ -37,6 +50,30 @@ static DieBody still(Quaternion orientation) { return {{50, 30, 10}, {0, 0, 0}, 
 static DieResult feed(DieResult result, const DieBody& body, uint32_t steps) {
     for (uint32_t step = 0; step < steps; step++) result = updateResult(result, body, D20, THRESHOLDS);
     return result;
+}
+
+static DieResult feedShape(const DieShape& shape, const DieBody& body, uint32_t steps) {
+    DieResult result = startRoll();
+    for (uint32_t step = 0; step < steps; step++) result = updateResult(result, body, shape, THRESHOLDS);
+    return result;
+}
+
+void test_each_die_waits_out_its_own_hold_and_not_another_dies() {
+    // The hold is a property of the body, not of the product (ADR-0028): a D6 drops onto the next
+    // face at once and locks after 0.04 s, while a D10 can balance on an edge and waits 0.21 s.
+    const DieShape d6 = makeD6(D6_EDGE_MM);
+    const DieShape d10 = makeD10(D10_CIRCUMRADIUS_MM);
+    TEST_ASSERT_TRUE_MESSAGE(d6.holdS < d10.holdS, "a D6 should not wait as long as a D10");
+
+    const uint32_t d6Steps = stepsToHold(d6.holdS);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DieState::Locked),
+                            static_cast<uint8_t>(feedShape(d6, still(faceUp(d6, 0)), d6Steps).state));
+    // The same stillness is nowhere near enough for the D10, where one shared hold would have
+    // locked both or made the D6 wait for the D10.
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DieState::Rolling),
+                            static_cast<uint8_t>(feedShape(d10, still(faceUp(d10, 0)), d6Steps).state));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DieState::Locked),
+                            static_cast<uint8_t>(feedShape(d10, still(faceUp(d10, 0)), stepsToHold(d10.holdS)).state));
 }
 
 void test_the_up_face_is_the_one_turned_to_the_glass() {
@@ -136,6 +173,7 @@ void test_only_a_new_roll_clears_a_lock() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_each_die_waits_out_its_own_hold_and_not_another_dies);
     RUN_TEST(test_the_up_face_is_the_one_turned_to_the_glass);
     RUN_TEST(test_a_die_still_for_the_hold_time_locks_to_its_up_face);
     RUN_TEST(test_a_die_still_for_less_than_the_hold_time_is_still_rolling);

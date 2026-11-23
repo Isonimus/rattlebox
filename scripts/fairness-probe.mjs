@@ -28,7 +28,12 @@ const PROGRAM = join('.pio', 'build', ENV, 'program');
 // The test's significance level (ADR-0002 left it to this probe): 0.001.
 export const ALPHA = 0.001;
 // 2000 traces of each die: enough that a false rest rarer than 1 in 1000 shows up.
-export const TRACES = [{ die: 'D20', rolls: 2000, seed: 1 }, { die: 'D6', rolls: 2000, seed: 1 }, { die: 'D8', rolls: 2000, seed: 1 }];
+export const TRACES = [
+  { die: 'D20', rolls: 2000, seed: 1 },
+  { die: 'D6', rolls: 2000, seed: 1 },
+  { die: 'D8', rolls: 2000, seed: 1 },
+  { die: 'D10', rolls: 2000, seed: 1 },
+];
 // The hold must outlast the longest false rest this many times over (ADR-0009).
 export const HOLD_MARGIN = 4;
 // The fairness test's sizes (99% power against one face 1.25× too likely at ALPHA), each tallied
@@ -42,8 +47,11 @@ export const TALLY_SIZES = [
   // 5,100 results by the same calculation (slice 0026).
   { die: 'D8', dice: 1, rolls: 5100 },
   { die: 'D8', dice: 3, rolls: 1700 },
+  // 7,000 results by the same calculation, against 27.877 at 9 degrees of freedom (slice 0027).
+  { die: 'D10', dice: 1, rolls: 7000 },
+  { die: 'D10', dice: 3, rolls: 2334 },
 ];
-export const FACES = { D6: 6, D8: 8, D20: 20 };
+export const FACES = { D6: 6, D8: 8, D10: 10, D20: 20 };
 // The chance a die lands on any given face, for the shake report's header.
 const CHANCES = Object.entries(FACES).map(([die, faces]) => `${die} ${(100 / faces).toFixed(2)}%`).join(', ');
 
@@ -96,8 +104,9 @@ export const REPLAYS = [
   // Other people's shakes with the product's kick, cut where a shake has stirred least: a kind of
   // shake the spin does not randomize shows as a pool with too many repeats (slice 0023).
   ...replays(['D6', 'D20'], [PRODUCT_KICK], PARTICIPANT_TAKES, [0]),
-  // The D8 with the product's kick only: the other kicks were evidence for choosing it (slice 0026).
-  ...replays(['D8'], [PRODUCT_KICK], [...GENTLE_TAKES, ...PARTICIPANT_TAKES], [0]),
+  // The D8 and the D10 with the product's kick only: the other kicks were evidence for choosing
+  // it (slice 0026), and the kick is not in question again for a later die (slice 0027).
+  ...replays(['D8', 'D10'], [PRODUCT_KICK], [...GENTLE_TAKES, ...PARTICIPANT_TAKES], [0]),
 ];
 
 // Rolls one after another, each starting where the last ended, on a random take cut at a random
@@ -411,16 +420,38 @@ function checkShakenRuns(runs, label) {
  * than the hold allows with ADR-0009's margin: a hold that short could lock a face the die then left.
  */
 function checkHold(parsed) {
-  const grid = parsed.find((entry) => entry.kind === 'grid');
-  if (!grid) return parsed.some((entry) => entry.kind === 'trace') ? ['traces with no trace grid'] : [];
-  const { linear, angular, holdS } = grid.product;
-  const points = grid.linear.length * grid.angular.length;
-  const failures = parsed
-    .filter((entry) => entry.kind === 'trace' && entry.falseRestS.length !== points)
-    .map((trace) => `${trace.die} trace: ${trace.falseRestS.length} false rests for ${points} grid points`);
+  const failures = [];
+  // Each die's run prints its own grid line before its traces. The hold on that line is the hold
+  // this die locks by, which is not the hold any other die locks by (ADR-0028), so a trace is
+  // only ever checked against the grid its own run printed.
+  const gridOf = new Map();
+  let latest = null;
+  for (const entry of parsed) {
+    if (entry.kind === 'grid') latest = entry;
+    if (entry.kind !== 'trace') continue;
+    if (latest === null) {
+      failures.push(`${entry.die} trace: no trace grid before it`);
+      continue;
+    }
+    const earlier = gridOf.get(entry.die);
+    if (earlier !== undefined && earlier.product.holdS !== latest.product.holdS) {
+      failures.push(`${entry.die}: traced against two holds, ${earlier.product.holdS} s and ${latest.product.holdS} s`);
+    }
+    const points = latest.linear.length * latest.angular.length;
+    if (entry.falseRestS.length !== points) {
+      failures.push(`${entry.die} trace: ${entry.falseRestS.length} false rests for ${points} grid points`);
+    }
+    gridOf.set(entry.die, latest);
+  }
   for (const die of summarizeTraces(parsed)) {
+    const grid = gridOf.get(die.die);
+    if (grid === undefined) continue;
+    const { linear, angular, holdS } = grid.product;
     const seconds = die.longestFalseRest.find((row) => row.linear === linear)?.byAngular.find((cell) => cell.angular === angular)?.seconds;
-    if (seconds === undefined) return [`the trace grid has no point at the product's ${linear} mm/s and ${angular} rad/s`];
+    if (seconds === undefined) {
+      failures.push(`${die.die}: the trace grid has no point at the product's ${linear} mm/s and ${angular} rad/s`);
+      continue;
+    }
     // Written so a NaN, from a value missing or unreadable, fails rather than slipping past.
     if (!(seconds * HOLD_MARGIN <= holdS)) {
       failures.push(`${die.die}: a false rest of ${seconds} s at ${linear} mm/s and ${angular} rad/s, which the ${holdS} s hold does not outlast ${HOLD_MARGIN} times over`);

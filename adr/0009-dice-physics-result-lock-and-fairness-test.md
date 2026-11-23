@@ -114,6 +114,11 @@ modref summaries for these functions looked correct; it has not run them on a de
   before it tipped, and the fairness probe fails a die whose traced pause the hold does not
   outlast four times over. The D8 lay flat at most 0.066° and propped at least 1.874°, so 0.5°
   still holds.*
+  *Corrected 2026-11-23 by ADR-0028: there is no one hold. Each die carries its own, measured
+  from its own trace by this same four-times rule, because how long a die can balance before it
+  tips is a fact about its shape and not about the product. The holds are D6 0.04 s, D20 0.16 s,
+  D8 0.17 s and D10 0.21 s. The rest of this claim, the two speeds and lying flat within 0.5°,
+  stands.*
 - **A die at rest past 0.5° is cocked and is nudged at once**: 400 mm/s upward in a random
   direction and 5 rad/s about a random axis, from the same RNG as the launch, and its result starts
   over. Never aimed at a face, so no result is steered (ADR-0002); immediate, so the player cannot
