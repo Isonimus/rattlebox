@@ -100,8 +100,8 @@ built by CI from the tagged source, which flashes at address 0x0. With
 [esptool](https://docs.espressif.com/projects/esptool/) (`pip install esptool`), the board on USB:
 
 ```bash
-esptool write-flash 0x0 rattlebox-v0.1.0-cardputer-adv.bin     # Cardputer ADV
-esptool write-flash 0x0 rattlebox-v0.1.0-m5stickc-plus2.bin    # M5StickC Plus 2
+esptool write-flash 0x0 rattlebox-v0.1.1-cardputer-adv.bin     # Cardputer ADV
+esptool write-flash 0x0 rattlebox-v0.1.1-m5stickc-plus2.bin    # M5StickC Plus 2
 ```
 
 The same image works in [M5Burner](https://docs.m5stack.com/en/download): add it as a *User
@@ -112,14 +112,14 @@ bootloader (ADR-0025).
 
 `SHA256SUMS.txt` checks the download (`sha256sum -c SHA256SUMS.txt`), and `NOTICES.md` carries the
 licenses of the code compiled into the firmware. The first line the board prints over USB serial,
-at 115200 baud, names the version it runs: `[boot] Rattlebox v0.1.0 on <board>`.
+at 115200 baud, names the version it runs: `[boot] Rattlebox v0.1.1 on <board>`.
 
 ## Building and flashing
 
 You need [PlatformIO](https://platformio.org/install) and, for the checks, Node.js 22 and Python 3.10
 to 3.13 (`pip install -r requirements.txt` installs the pinned tools). The build stamps the firmware
 with its version from git; a build from a downloaded source archive, which has no git history,
-names it instead, as in `RATTLEBOX_VERSION=v0.1.0 pio run -e cardputer`.
+names it instead, as in `RATTLEBOX_VERSION=v0.1.1 pio run -e cardputer`.
 
 ```bash
 pio run -e cardputer -t upload          # Cardputer ADV

@@ -5,7 +5,7 @@ same commit as the change it describes. Each release's section is its GitHub rel
 so `scripts/release.mjs` refuses to release a version with no section here (ADR-0021). The
 decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
 
-## Unreleased
+## v0.1.1 (2026-11-23)
 
 - **Installing with M5Launcher.** Each release also carries the app alone,
   `rattlebox-<version>-<board>-app.bin`, for over-the-air installers. The full image, which esptool
