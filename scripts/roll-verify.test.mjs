@@ -97,9 +97,12 @@ test('a roll that never locked is an error line', () => {
   assert.equal(parseRollLine('[roll] FAILED: not every die locked within 20 s').kind, 'error');
 });
 
-test('the commands to reach a choice toggle the type at most once and cycle the count forward', () => {
+test('the commands to reach a choice step the type forward through the cycle and cycle the count forward', () => {
   assert.deepEqual(commandsToReach({ type: 'D20', count: 1 }, { type: 'D6', count: 3 }), ['T', 'C', 'C']);
-  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D20', count: 3 }), ['T']);
+  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D8', count: 3 }), ['T']);
+  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D20', count: 3 }), ['T', 'T']);
+  assert.deepEqual(commandsToReach({ type: 'D20', count: 3 }, { type: 'D8', count: 3 }), ['T', 'T']);
+  assert.throws(() => commandsToReach({ type: 'D20', count: 1 }, { type: 'D12', count: 1 }), /no die type D12/);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D6', count: 2 }), ['C', 'C']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 2 }, { type: 'D6', count: 2 }), []);
 });
@@ -126,14 +129,17 @@ test('a type\'s summary counts every result, the ones knocked over after locking
 
 test('a run with every roll locked and even results passes', () => {
   const parsed = BOOT_LINES.map(parseRollLine);
-  const types = [summarizeType('D6', evenRolls('D6', 6, ROLLS.D6)), summarizeType('D20', evenRolls('D20', 20, ROLLS.D20))];
+  const types = [
+    summarizeType('D6', evenRolls('D6', 6, ROLLS.D6)), summarizeType('D8', evenRolls('D8', 8, ROLLS.D8)),
+    summarizeType('D20', evenRolls('D20', 20, ROLLS.D20)),
+  ];
   assert.deepEqual(checkRun(parsed, types), []);
 });
 
 test('results all on one face fail chi-square, as the host miscompile turned every launch', () => {
   const parsed = BOOT_LINES.map(parseRollLine);
   const stuck = evenRolls('D20', 20, ROLLS.D20).map((roll) => ({ ...roll, locked: { ...roll.locked, results: [7, 7, 7], shown: [7, 7, 7] } }));
-  const types = [summarizeType('D6', evenRolls('D6', 6, ROLLS.D6)), summarizeType('D20', stuck)];
+  const types = [summarizeType('D6', evenRolls('D6', 6, ROLLS.D6)), summarizeType('D8', evenRolls('D8', 8, ROLLS.D8)), summarizeType('D20', stuck)];
   const failures = checkRun(parsed, types);
   assert.equal(failures.length, 1);
   assert.match(failures[0], /^D20: chi-square/);
@@ -143,7 +149,7 @@ test('rolls that lost IMU samples fail their type', () => {
   // One sample in ten lost across every D6 roll.
   const parsed = BOOT_LINES.map(parseRollLine);
   const lossy = evenRolls('D6', 6, ROLLS.D6).map((roll) => ({ ...roll, frame: { ...roll.frame, imuSpanUs: 1100000 } }));
-  const types = [summarizeType('D6', lossy), summarizeType('D20', evenRolls('D20', 20, ROLLS.D20))];
+  const types = [summarizeType('D6', lossy), summarizeType('D8', evenRolls('D8', 8, ROLLS.D8)), summarizeType('D20', evenRolls('D20', 20, ROLLS.D20))];
   assert.deepEqual(checkRun(parsed, types), ['D6: IMU samples at 90.0 Hz, under 98% of 100 Hz']);
 });
 

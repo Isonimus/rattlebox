@@ -22,6 +22,7 @@ struct Expected {
 };
 
 static const Expected D6{"D6", 8, 6, 4};
+static const Expected D8{"D8", 6, 8, 3};
 static const Expected D20{"D20", 12, 20, 3};
 
 static void assertVecEqual(Vec3 expected, Vec3 actual) {
@@ -154,6 +155,10 @@ void test_the_d6_is_a_closed_outward_cube_with_opposites_summing_to_7() {
     assertRegularSolid(makeD6(EDGE), D6);
 }
 
+void test_the_d8_is_a_closed_outward_octahedron_with_opposites_summing_to_9() {
+    assertRegularSolid(makeD8(EDGE), D8);
+}
+
 void test_the_d20_is_a_closed_outward_icosahedron_with_opposites_summing_to_21() {
     assertRegularSolid(makeD20(EDGE), D20);
 }
@@ -186,6 +191,7 @@ void test_the_identity_moves_nothing() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_the_d6_is_a_closed_outward_cube_with_opposites_summing_to_7);
+    RUN_TEST(test_the_d8_is_a_closed_outward_octahedron_with_opposites_summing_to_9);
     RUN_TEST(test_the_d20_is_a_closed_outward_icosahedron_with_opposites_summing_to_21);
     RUN_TEST(test_a_face_centre_is_the_mean_of_its_corners);
     RUN_TEST(test_a_quarter_turn_about_z_takes_x_to_y);

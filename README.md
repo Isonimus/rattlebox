@@ -38,7 +38,7 @@ other; tilt it and they slide; let them settle and the face each one lies on is 
   <tr>
     <td width="33%" align="center"><img src="docs/images/cardputer-three-d20.png" alt="Three D20 locked on the Cardputer ADV, results 18, 3 and 13 totalling 34" width="260"><br><sub><b>Three D20</b> on the Cardputer ADV</sub></td>
     <td width="33%" align="center"><img src="docs/images/cardputer-three-d6.png" alt="Three D6 locked on the Cardputer ADV, results 2, 4 and 4 totalling 10" width="260"><br><sub><b>Three D6</b> on the Cardputer ADV</sub></td>
-    <td width="33%" align="center"><img src="docs/images/stickc-three-d20.png" alt="Three D20 locked on the M5StickC Plus 2" width="260"><br><sub><b>Three D20</b> on the M5StickC Plus 2</sub></td>
+    <td width="33%" align="center"><img src="docs/images/stickc-three-d8.png" alt="Three D8 locked on the M5StickC Plus 2, results 6, 5 and 5 totalling 16" width="260"><br><sub><b>Three D8</b> on the M5StickC Plus 2</sub></td>
   </tr>
 </table>
 
@@ -69,14 +69,14 @@ other; tilt it and they slide; let them settle and the face each one lies on is 
 - **Sound.** Every hit in the physics clacks: filtered noise through the Cardputer's speaker, a
   click on the StickC's buzzer. A shake's rattle is those same hits.
 
-D6 and D20 are available, one to three dice of a type per roll. The device boots with one D20.
+D6, D8 and D20 are available, one to three dice of a type per roll. The device boots with one D20.
 
 ## Controls
 
 | What it does | Cardputer ADV | M5StickC Plus 2 |
 |---|---|---|
 | Roll | Shake the device | Shake the device |
-| Switch between D6 and D20 | `Enter` | Button A (front) |
+| Next die type: D6, D8, D20, then D6 again | `Enter` | Button A (front) |
 | Cycle one, two, three dice | `Backspace` | Button B (side) |
 | One die more / one fewer | `;` (up) / `.` (down) | |
 
@@ -137,7 +137,7 @@ cycles the count, and `S` sends a screen capture.
 | `npm test` | Host unit tests, including the fairness test one die at a time, and the scripts' own tests |
 | `npm run test:fairness` | The fairness test three dice at a time, run before a change to the physics or its input merges |
 | `npm run lint` | The decision records: their structure, citations, and that committed ones only gained lines |
-| `npm run verify:roll -- --env <env> --port <port>` | On a flashed board: boots, rolls 40 times three D6 and 60 times three D20, checks every roll locks and the results pass chi-square, and saves screen captures |
+| `npm run verify:roll -- --env <env> --port <port>` | On a flashed board: boots, rolls 40 times three D6, 40 times three D8 and 60 times three D20, checks every roll locks and the results pass chi-square, and saves screen captures |
 
 `verify:skeleton`, `verify:shake` and `verify:sound` are the other device checks; each names its
 usage at the top of its script in `scripts/`.
@@ -148,7 +148,7 @@ cppcheck, CodeQL, and the decision-record checks. Pushing a `v*` tag builds and 
 
 ## Roadmap
 
-v0.1 is the dice tray described above. v0.2 adds D4, D8, D10, D12 and percentile dice, dice
+v0.1 is the dice tray described above. v0.2 adds the D8, then D4, D10, D12 and percentile dice, dice
 notation typed on the Cardputer (`3d6+2`, `2d20kh1`), presets, roll history and a hidden roll. The
 plan, and what is deliberately not planned, is in [`docs/roadmap.md`](docs/roadmap.md).
 

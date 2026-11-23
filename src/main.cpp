@@ -123,6 +123,7 @@ HardwareSource randomness;
 bool displayUp = false;
 
 const DieShape D6_SHAPE = makeD6(D6_EDGE_MM);
+const DieShape D8_SHAPE = makeD8(D8_EDGE_MM);
 const DieShape D20_SHAPE = makeD20(D20_EDGE_MM);
 const Lighting LIGHTING{normalized(Vec3{-0.3f, 0.4f, 1.0f}), AMBIENT};
 
@@ -149,7 +150,15 @@ uint32_t frameDeadlineUs = 0;
 
 uint16_t packed(Rgb color) { return shadeRgb565(color, 1.0f); }
 
-const DieShape& shapeOf(DieType type) { return type == DieType::D20 ? D20_SHAPE : D6_SHAPE; }
+const DieShape& shapeOf(DieType type) {
+    switch (type) {
+        case DieType::D6: return D6_SHAPE;
+        case DieType::D8: return D8_SHAPE;
+        case DieType::D20: return D20_SHAPE;
+    }
+    // A value outside the enum: a corrupted choice, not a die to guess at.
+    abort();
+}
 
 void startRollCounters() {
     rollSteps = 0;

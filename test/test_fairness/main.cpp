@@ -46,16 +46,18 @@
 // came back on its previous face 24-28% of the time.
 //
 // Sized in slice 0008 to catch one face 1.25× too likely with 99% power: 18,000 D20 results and
-// 3,400 D6 results. The seed is fixed, so the test cannot flake. One die at a time runs in
+// 3,400 D6 results, and in slice 0026 by the same calculation 5,100 D8 results. The seed is fixed, so the test cannot flake. One die at a time runs in
 // `npm test`; three at a time take minutes more and run with `npm run test:fairness`, which
 // defines FAIRNESS_THREE_DICE, before a change to the physics or its input merges (ADR-0010).
 
 static const uint64_t SEED = 1;
 static const unsigned long D20_RESULTS = 18000;
 static const unsigned long D6_RESULTS = 3400;
-// Upper 0.1% points of chi-square: 19 degrees of freedom for a D20, 5 for a D6.
+static const unsigned long D8_RESULTS = 5100;
+// Upper 0.1% points of chi-square: 19 degrees of freedom for a D20, 5 for a D6, 7 for a D8.
 static const double CRITICAL_D20 = 43.820;
 static const double CRITICAL_D6 = 20.515;
+static const double CRITICAL_D8 = 24.322;
 // The two-sided 0.1% point of the normal distribution, for the repeat share's binomial count.
 static const double CRITICAL_REPEAT_Z = 3.2905;
 // A roll still moving after this long has a die the physics never brings to rest.
@@ -195,16 +197,20 @@ void test_the_shakes_are_every_csv_in_the_directory_in_name_order() {
 
 void test_one_d20_at_a_time_is_fair() { assertFair(makeD20(D20_EDGE_MM), 1, D20_RESULTS, CRITICAL_D20); }
 void test_one_d6_at_a_time_is_fair() { assertFair(makeD6(D6_EDGE_MM), 1, D6_RESULTS, CRITICAL_D6); }
+void test_one_d8_at_a_time_is_fair() { assertFair(makeD8(D8_EDGE_MM), 1, D8_RESULTS, CRITICAL_D8); }
 void test_three_d20s_at_a_time_are_fair() { assertFair(makeD20(D20_EDGE_MM), MAX_DICE, D20_RESULTS, CRITICAL_D20); }
 void test_three_d6s_at_a_time_are_fair() { assertFair(makeD6(D6_EDGE_MM), MAX_DICE, D6_RESULTS, CRITICAL_D6); }
+void test_three_d8s_at_a_time_are_fair() { assertFair(makeD8(D8_EDGE_MM), MAX_DICE, D8_RESULTS, CRITICAL_D8); }
 
 // A change of die type or count launches the new dice from rest (slice 0011), ADR-0009's roll.
 void test_one_d20_launched_from_rest_is_fair() { assertLaunchesFair(makeD20(D20_EDGE_MM), 1, D20_RESULTS, CRITICAL_D20); }
 void test_one_d6_launched_from_rest_is_fair() { assertLaunchesFair(makeD6(D6_EDGE_MM), 1, D6_RESULTS, CRITICAL_D6); }
+void test_one_d8_launched_from_rest_is_fair() { assertLaunchesFair(makeD8(D8_EDGE_MM), 1, D8_RESULTS, CRITICAL_D8); }
 void test_three_d20s_launched_from_rest_are_fair() {
     assertLaunchesFair(makeD20(D20_EDGE_MM), MAX_DICE, D20_RESULTS, CRITICAL_D20);
 }
 void test_three_d6s_launched_from_rest_are_fair() { assertLaunchesFair(makeD6(D6_EDGE_MM), MAX_DICE, D6_RESULTS, CRITICAL_D6); }
+void test_three_d8s_launched_from_rest_are_fair() { assertLaunchesFair(makeD8(D8_EDGE_MM), MAX_DICE, D8_RESULTS, CRITICAL_D8); }
 
 void test_a_loaded_d20_fails_chi_square() {
     // Shows the first check can fail: shifting the body off the centre of mass weights one side,
@@ -230,8 +236,10 @@ int main() {
 #ifdef FAIRNESS_THREE_DICE
     RUN_TEST(test_three_d20s_at_a_time_are_fair);
     RUN_TEST(test_three_d6s_at_a_time_are_fair);
+    RUN_TEST(test_three_d8s_at_a_time_are_fair);
     RUN_TEST(test_three_d20s_launched_from_rest_are_fair);
     RUN_TEST(test_three_d6s_launched_from_rest_are_fair);
+    RUN_TEST(test_three_d8s_launched_from_rest_are_fair);
 #else
     RUN_TEST(test_the_chi_square_statistic_matches_a_worked_example);
     RUN_TEST(test_the_repeat_z_matches_a_worked_example);
@@ -239,8 +247,10 @@ int main() {
     RUN_TEST(test_the_shakes_are_every_csv_in_the_directory_in_name_order);
     RUN_TEST(test_one_d20_at_a_time_is_fair);
     RUN_TEST(test_one_d6_at_a_time_is_fair);
+    RUN_TEST(test_one_d8_at_a_time_is_fair);
     RUN_TEST(test_one_d20_launched_from_rest_is_fair);
     RUN_TEST(test_one_d6_launched_from_rest_is_fair);
+    RUN_TEST(test_one_d8_launched_from_rest_is_fair);
     RUN_TEST(test_a_loaded_d20_fails_chi_square);
     RUN_TEST(test_a_throw_alone_fails_the_repeat_check);
 #endif

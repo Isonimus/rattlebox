@@ -28,7 +28,9 @@ const PROGRAM = join('.pio', 'build', ENV, 'program');
 // The test's significance level (ADR-0002 left it to this probe): 0.001.
 export const ALPHA = 0.001;
 // 2000 traces of each die: enough that a false rest rarer than 1 in 1000 shows up.
-export const TRACES = [{ die: 'D20', rolls: 2000, seed: 1 }, { die: 'D6', rolls: 2000, seed: 1 }];
+export const TRACES = [{ die: 'D20', rolls: 2000, seed: 1 }, { die: 'D6', rolls: 2000, seed: 1 }, { die: 'D8', rolls: 2000, seed: 1 }];
+// The hold must outlast the longest false rest this many times over (ADR-0009).
+export const HOLD_MARGIN = 4;
 // The fairness test's sizes (99% power against one face 1.25× too likely at ALPHA), each tallied
 // with three seeds so the p-values show the spread one fixed seed hides.
 export const TALLY_SEEDS = [1, 2, 3];
@@ -37,8 +39,13 @@ export const TALLY_SIZES = [
   { die: 'D20', dice: 3, rolls: 6000 },
   { die: 'D6', dice: 1, rolls: 3400 },
   { die: 'D6', dice: 3, rolls: 1134 },
+  // 5,100 results by the same calculation (slice 0026).
+  { die: 'D8', dice: 1, rolls: 5100 },
+  { die: 'D8', dice: 3, rolls: 1700 },
 ];
-export const FACES = { D6: 6, D20: 20 };
+export const FACES = { D6: 6, D8: 8, D20: 20 };
+// The chance a die lands on any given face, for the shake report's header.
+const CHANCES = Object.entries(FACES).map(([die, faces]) => `${die} ${(100 / faces).toFixed(2)}%`).join(', ');
 
 // The IMU probe's shake takes at the product's 100 Hz (ADR-0005), trimmed to t_us,ax,ay,az.
 const SHAKES_DIR = join('test', 'fixtures', 'shakes');
@@ -89,6 +96,8 @@ export const REPLAYS = [
   // Other people's shakes with the product's kick, cut where a shake has stirred least: a kind of
   // shake the spin does not randomize shows as a pool with too many repeats (slice 0023).
   ...replays(['D6', 'D20'], [PRODUCT_KICK], PARTICIPANT_TAKES, [0]),
+  // The D8 with the product's kick only: the other kicks were evidence for choosing it (slice 0026).
+  ...replays(['D8'], [PRODUCT_KICK], [...GENTLE_TAKES, ...PARTICIPANT_TAKES], [0]),
 ];
 
 // Rolls one after another, each starting where the last ended, on a random take cut at a random
@@ -99,7 +108,8 @@ export const CHAINS = [
   ...TALLY_SIZES.filter((size) => size.die === 'D6').flatMap((size) => TALLY_SEEDS.map((seed) => ({ ...size, seed, kick: 'throw' }))),
 ];
 
-const GRID = /^\[trace-grid\] linear=([\d.,]+) angular=([\d.,]+)$/;
+const GRID =
+  /^\[trace-grid\] linear=([\d.,]+) angular=([\d.,]+) product_linear=([\d.]+) product_angular=([\d.]+) product_hold_s=([\d.]+)$/;
 const KEY_VALUES = /(\w+)=(\S+)/g;
 
 function keyValues(line) {
@@ -113,7 +123,14 @@ function numbers(text) {
 /** @returns {{kind: string, [key: string]: unknown}} */
 export function parseProbeLine(line) {
   const grid = GRID.exec(line);
-  if (grid) return { kind: 'grid', linear: numbers(grid[1]), angular: numbers(grid[2]) };
+  if (grid) {
+    return {
+      kind: 'grid',
+      linear: numbers(grid[1]),
+      angular: numbers(grid[2]),
+      product: { linear: Number(grid[3]), angular: Number(grid[4]), holdS: Number(grid[5]) },
+    };
+  }
   if (line.startsWith('[trace] ')) {
     const fields = keyValues(line);
     return {
@@ -389,6 +406,29 @@ function checkShakenRuns(runs, label) {
   return failures;
 }
 
+/**
+ * A failure for each die that paused at rest by the product's thresholds and then tipped, for longer
+ * than the hold allows with ADR-0009's margin: a hold that short could lock a face the die then left.
+ */
+function checkHold(parsed) {
+  const grid = parsed.find((entry) => entry.kind === 'grid');
+  if (!grid) return parsed.some((entry) => entry.kind === 'trace') ? ['traces with no trace grid'] : [];
+  const { linear, angular, holdS } = grid.product;
+  const points = grid.linear.length * grid.angular.length;
+  const failures = parsed
+    .filter((entry) => entry.kind === 'trace' && entry.falseRestS.length !== points)
+    .map((trace) => `${trace.die} trace: ${trace.falseRestS.length} false rests for ${points} grid points`);
+  for (const die of summarizeTraces(parsed)) {
+    const seconds = die.longestFalseRest.find((row) => row.linear === linear)?.byAngular.find((cell) => cell.angular === angular)?.seconds;
+    if (seconds === undefined) return [`the trace grid has no point at the product's ${linear} mm/s and ${angular} rad/s`];
+    // Written so a NaN, from a value missing or unreadable, fails rather than slipping past.
+    if (!(seconds * HOLD_MARGIN <= holdS)) {
+      failures.push(`${die.die}: a false rest of ${seconds} s at ${linear} mm/s and ${angular} rad/s, which the ${holdS} s hold does not outlast ${HOLD_MARGIN} times over`);
+    }
+  }
+  return failures;
+}
+
 /** Every failure across the probe's output: unsettled rolls, unfair tallies, missing runs. */
 export function checkRuns(parsed) {
   const failures = [];
@@ -412,6 +452,7 @@ export function checkRuns(parsed) {
     const count = parsed.filter((entry) => entry.kind === 'trace' && entry.die === trace.die).length;
     if (count !== trace.rolls) failures.push(`${trace.die}: ${count} traces of ${trace.rolls}`);
   }
+  failures.push(...checkHold(parsed));
 
   const replayRuns = parsed.filter((entry) => entry.kind === 'replay');
   const chains = parsed.filter((entry) => entry.kind === 'chain');
@@ -447,7 +488,7 @@ function percent(share) {
 
 export function shakeMarkdown(pools, chains) {
   const lines = ['## Shakes: results on the face the die showed before', ''];
-  lines.push(`One die, ${REPLAY_TRIALS} rolls per take, pooled over the takes; the cut is how long the shake went on after detection before the device was held still. Chance: D6 16.67%, D20 5.00%. p is two-sided, against chance.`, '');
+  lines.push(`One die, ${REPLAY_TRIALS} rolls per take, pooled over the takes; the cut is how long the shake went on after detection before the device was held still. Chance: ${CHANCES}. p is two-sided, against chance.`, '');
   const cuts = [...new Set(pools.map((pool) => pool.cut))].sort((a, b) => a - b);
   lines.push(`| Die | Shakes | Kick | ${cuts.map((cut) => `Cut ${cut} s: pooled (worst take), p`).join(' | ')} |`);
   lines.push(`|---|---|---|${cuts.map(() => '---').join('|')}|`);

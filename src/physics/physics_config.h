@@ -35,6 +35,12 @@ constexpr int BAND_HEIGHT_PX = 20;
 // that is about 2.29 px/mm, so the screen's 240 px width frames a tray 105 mm wide.
 constexpr float D20_EDGE_MM = 10.5f;
 constexpr float D6_EDGE_MM = 16.0f;
+// The D8 spans the D20's 20 mm: its vertices on the same sphere, so the dice of a set look one size
+// and dice collide by the bounding spheres they already had (slice 0026). An icosahedron's
+// circumradius is sin(72°) of its edge, an octahedron's 1/√2 of its edge: 14.1 mm.
+constexpr float ICOSAHEDRON_CIRCUMRADIUS_PER_EDGE = 0.9510565f;
+constexpr float OCTAHEDRON_EDGE_PER_CIRCUMRADIUS = 1.4142136f;
+constexpr float D8_EDGE_MM = D20_EDGE_MM * ICOSAHEDRON_CIRCUMRADIUS_PER_EDGE * OCTAHEDRON_EDGE_PER_CIRCUMRADIUS;
 constexpr float TRAY_WIDTH_MM = 105.0f;
 constexpr float TRAY_PX_PER_MM = SCREEN_WIDTH_PX / TRAY_WIDTH_MM;
 // The screen beneath the strip, 50.3 mm: derived, so the tray's far wall stays the strip's edge.
@@ -80,10 +86,12 @@ constexpr uint8_t SOLVER_ITERATIONS = 10;
 // Measured by the fairness probe's trace (slice 0008): 2000 rolls of each die, left alone for 6 s.
 // A die at rest moved at most 0.00016 mm/s and 0.00002 rad/s, far below any threshold here. Below
 // 5 mm/s and 0.5 rad/s, the longest pause after which a die still tipped onto another face was
-// 0.037 s (D20) and 0.033 s (D6); the hold is four times that.
+// 0.037 s (D20) and 0.033 s (D6); the hold was four times that, 0.15 s. 2000 D8 rolls (slice 0026)
+// paused 0.0417 s, so the hold is now four times the D8's, rounded up. scripts/fairness-probe.mjs
+// fails a die whose traced pause the hold does not outlast four times over.
 constexpr float REST_LINEAR_MM_PER_S = 5.0f;
 constexpr float REST_ANGULAR_RAD_PER_S = 0.5f;
-constexpr float REST_HOLD_S = 0.15f;
+constexpr float REST_HOLD_S = 0.17f;
 // At rest, the up face's normal was at most 0.229° from straight up on dice lying flat and at
 // least 1.085° on dice propped on a wall: 0.5° sits in the gap.
 constexpr float RAD_PER_DEG = 3.14159265f / 180;

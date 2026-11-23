@@ -69,6 +69,47 @@ DieFace triangleFace(Triangle corners, uint8_t numeral) {
     return {{corners.a, corners.b, corners.c, 0}, TRIANGLE_CORNERS, {}, numeral};
 }
 
+// ---- D8
+
+constexpr uint8_t D8_VERTEX_COUNT = 6;
+constexpr uint8_t D8_FACE_COUNT = 8;
+constexpr uint8_t D8_OPPOSITE_NUMERAL_SUM = D8_FACE_COUNT + 1;
+constexpr float SQRT_2 = 1.4142135624f;
+// A uniform regular octahedron of edge a: I = m a² / 10.
+constexpr float OCTAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED = 1.0f / 10;
+
+// One vertex on each axis, either side: +x, −x, +y, −y, +z, −z.
+constexpr uint8_t PLUS_X = 0;
+constexpr uint8_t PLUS_Y = 2;
+constexpr uint8_t PLUS_Z = 4;
+constexpr uint8_t MINUS_OFFSET = 1;
+
+struct Octant {
+    bool    negativeX;
+    bool    negativeY;
+    bool    negativeZ;
+    uint8_t numeral;
+};
+
+// One face per octant. The four above the equator carry 1 to 4; each one below carries nine minus
+// the numeral of the face through the centre from it.
+constexpr Octant D8_OCTANTS[D8_FACE_COUNT] = {
+    {false, false, false, 1}, {true, false, false, 2}, {true, true, false, 3}, {false, true, false, 4},
+    {true, true, true, D8_OPPOSITE_NUMERAL_SUM - 1}, {false, true, true, D8_OPPOSITE_NUMERAL_SUM - 2},
+    {false, false, true, D8_OPPOSITE_NUMERAL_SUM - 3}, {true, false, true, D8_OPPOSITE_NUMERAL_SUM - 4},
+};
+
+uint8_t axisVertex(uint8_t plus, bool negative) { return negative ? plus + MINUS_OFFSET : plus; }
+
+DieFace octantFace(const Octant& octant) {
+    const uint8_t x = axisVertex(PLUS_X, octant.negativeX);
+    const uint8_t y = axisVertex(PLUS_Y, octant.negativeY);
+    const uint8_t z = axisVertex(PLUS_Z, octant.negativeZ);
+    // x, y, z winds outward in the +++ octant; each axis mirrored reverses the winding.
+    const bool mirrored = (octant.negativeX != octant.negativeY) != octant.negativeZ;
+    return triangleFace(mirrored ? Triangle{x, z, y} : Triangle{x, y, z}, octant.numeral);
+}
+
 // ---- shared
 
 /** @brief Fill in what follows from the vertices and faces: normals and the bounding radius. */
@@ -100,6 +141,24 @@ DieShape makeD6(float edgeLength) {
         face.numeral = square.numeral;
     }
     shape.inertiaPerMass = CUBE_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
+    finish(shape);
+    return shape;
+}
+
+DieShape makeD8(float edgeLength) {
+    DieShape shape{};
+    // Neighbouring axis vertices at distance r are r·√2 apart.
+    const float r = edgeLength / SQRT_2;
+    shape.vertexCount = D8_VERTEX_COUNT;
+    shape.vertices[PLUS_X] = {r, 0, 0};
+    shape.vertices[PLUS_X + MINUS_OFFSET] = {-r, 0, 0};
+    shape.vertices[PLUS_Y] = {0, r, 0};
+    shape.vertices[PLUS_Y + MINUS_OFFSET] = {0, -r, 0};
+    shape.vertices[PLUS_Z] = {0, 0, r};
+    shape.vertices[PLUS_Z + MINUS_OFFSET] = {0, 0, -r};
+    shape.faceCount = D8_FACE_COUNT;
+    for (uint8_t i = 0; i < D8_FACE_COUNT; i++) shape.faces[i] = octantFace(D8_OCTANTS[i]);
+    shape.inertiaPerMass = OCTAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
     finish(shape);
     return shape;
 }

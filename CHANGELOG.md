@@ -5,6 +5,15 @@ same commit as the change it describes. Each release's section is its GitHub rel
 so `scripts/release.mjs` refuses to release a version with no section here (ADR-0021). The
 decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
 
+## Unreleased
+
+- **The D8.** An eight-sided die, rolled one to three at a time like the others and as wide as the
+  D20. It passed the same fairness test over 5,100 simulated results. `Enter` or button A now steps
+  through the types in order, D6, D8, D20 and back to D6, where it switched between D6 and D20.
+- **Results lock 20 ms later**, 0.17 s after a die comes to rest instead of 0.15 s: a D8 can pause
+  longer than the other dice before tipping onto another face, and the wait must outlast that
+  pause with room to spare.
+
 ## v0.1.1 (2026-11-23)
 
 - **Installing with M5Launcher.** Each release also carries the app alone,

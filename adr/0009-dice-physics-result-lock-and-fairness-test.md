@@ -110,6 +110,10 @@ modref summaries for these functions looked correct; it has not run them on a de
   about a random axis, from a uniformly random orientation.
 - **A result locks when the die stays below 5 mm/s and 0.5 rad/s for 0.15 s** (four times the
   longest measured false rest) **lying flat**, its up face within 0.5° of the glass's normal.
+  *Amended 2026-11-23 by slice 0026: the hold is 0.17 s, four times the 0.0417 s a D8 paused
+  before it tipped, and the fairness probe fails a die whose traced pause the hold does not
+  outlast four times over. The D8 lay flat at most 0.066° and propped at least 1.874°, so 0.5°
+  still holds.*
 - **A die at rest past 0.5° is cocked and is nudged at once**: 400 mm/s upward in a random
   direction and 5 rad/s about a random axis, from the same RNG as the launch, and its result starts
   over. Never aimed at a face, so no result is steered (ADR-0002); immediate, so the player cannot

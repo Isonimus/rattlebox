@@ -10,7 +10,7 @@ import {
   summarizeChain, summarizeTally, summarizeTraces, summaryMarkdown, tiltGap,
 } from './fairness-probe.mjs';
 
-const GRID = '[trace-grid] linear=1,5 angular=0.1,0.5';
+const GRID = '[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.5 product_hold_s=0.15';
 
 function trace(die, tilt, falseRest = '0.0000,0.0100,0.0200,0.0370') {
   return `[trace] die=${die} roll=0 final_tilt_deg=${tilt} last_face_change_s=0.2500 floor_linear=0.000150 floor_angular=0.000020 false_rest_s=${falseRest}`;
@@ -50,7 +50,7 @@ function completeRun() {
   const lines = [GRID];
   for (const t of TRACES) for (let i = 0; i < t.rolls; i++) lines.push(trace(t.die, '0.0000'));
   for (const size of TALLY_SIZES) {
-    for (const seed of TALLY_SEEDS) lines.push(tally(size.die, size.dice, seed, size.die === 'D20' ? FAIR_D20 : FAIR_D6));
+    for (const seed of TALLY_SEEDS) lines.push(tally(size.die, size.dice, seed, even(size.rolls * size.dice, FACES[size.die])));
   }
   for (const planned of REPLAYS) lines.push(replay(planned));
   for (const planned of CHAINS) lines.push(chain(planned));
@@ -83,7 +83,9 @@ test('the chi-square statistic matches a worked example', () => {
 });
 
 test('trace, grid and tally lines parse into their fields', () => {
-  assert.deepEqual(parseProbeLine(GRID), { kind: 'grid', linear: [1, 5], angular: [0.1, 0.5] });
+  assert.deepEqual(parseProbeLine(GRID), {
+    kind: 'grid', linear: [1, 5], angular: [0.1, 0.5], product: { linear: 5, angular: 0.5, holdS: 0.15 },
+  });
   const parsed = parseProbeLine(trace('D20', '12.5000'));
   assert.equal(parsed.kind, 'trace');
   assert.equal(parsed.finalTiltDeg, 12.5);
@@ -136,6 +138,29 @@ test('an unsettled roll, an unfair tally, a missing tally and missing traces are
   const firstD6Trace = run.findIndex((entry) => entry.kind === 'trace' && entry.die === 'D6');
   const missingTrace = run.filter((_, i) => i !== firstD6Trace);
   assert.deepEqual(checkRuns(missingTrace), [`D6: ${TRACES[1].rolls - 1} traces of ${TRACES[1].rolls}`]);
+});
+
+test('a false rest the hold does not outlast four times over fails: the D8 traced 0.0417 s against 0.15 s', () => {
+  const run = completeRun();
+  const firstD8Trace = run.findIndex((entry) => entry.kind === 'trace' && entry.die === 'D8');
+  run[firstD8Trace] = parseProbeLine(trace('D8', '0.0000', '0.0000,0.0100,0.0200,0.0417'));
+  assert.deepEqual(checkRuns(run), ['D8: a false rest of 0.0417 s at 5 mm/s and 0.5 rad/s, which the 0.15 s hold does not outlast 4 times over']);
+  const longerHold = run.map((entry) => (entry.kind === 'grid' ? { ...entry, product: { ...entry.product, holdS: 0.17 } } : entry));
+  assert.deepEqual(checkRuns(longerHold), []);
+});
+
+test('a trace short of a false rest per grid point is named, not read as a pause of NaN that passes the hold', () => {
+  const run = completeRun();
+  const firstD8Trace = run.findIndex((entry) => entry.kind === 'trace' && entry.die === 'D8');
+  run[firstD8Trace] = parseProbeLine(trace('D8', '0.0000', '0.0000,0.0100,0.0200'));
+  const failures = checkRuns(run);
+  assert.ok(failures.includes('D8 trace: 3 false rests for 4 grid points'));
+  assert.ok(failures.some((failure) => /^D8: a false rest of NaN s/.test(failure)));
+});
+
+test('a grid that leaves out the product\'s thresholds fails rather than checking the hold against nothing', () => {
+  const run = completeRun().map((entry) => (entry.kind === 'grid' ? { ...entry, product: { ...entry.product, linear: 2 } } : entry));
+  assert.deepEqual(checkRuns(run), ['the trace grid has no point at the product\'s 2 mm/s and 0.5 rad/s']);
 });
 
 test('a tally whose counts sum to nothing fails rather than passing on a NaN', () => {
@@ -242,6 +267,8 @@ test('replays pool per die, gesture, kick and cut, keeping the worst take', () =
   const markdown = shakeMarkdown(poolReplays(lines.map(parseProbeLine)), [summarizeChain(parseProbeLine(chain(PRODUCT_D6_CHAIN, 567)))]);
   assert.match(markdown, /\| D6 \| gentle \| none \| 81\.67% \(90\.00%\), 0\.000 \|/);
   assert.match(markdown, /\| D6 \| 1 \| spin=0\.1 \| 1 \| 3400 \| [\d.]+ \| [\d.]+ \| 16\.68% \(16\.67%\) \| 0\.988 \| 3 of 3400 \|/);
+  // Every die the replays roll has its chance in the header, the D8 included (slice 0026).
+  assert.match(markdown, /Chance: D6 16\.67%, D8 12\.50%, D20 5\.00%\./);
 });
 
 test('each take of a pooled replay rolls from its own seed', () => {

@@ -11,7 +11,7 @@ enum class SerialCommand : uint8_t {
     None,
     /** @brief 'R': launch the current choice again. */
     Roll,
-    /** @brief 'T': what PRIMARY does, toggle the die type. */
+    /** @brief 'T': what PRIMARY does, step to the next die type. */
     PressPrimary,
     /** @brief 'C': what SECONDARY does, cycle the count. */
     PressSecondary,

@@ -3,9 +3,9 @@
 // the parsing of the sound and heap lines in slice 0013.
 //
 // Resets a board running the product through scripts/serial_reset_monitor.py, checks its boot,
-// then rolls three D6 and three D20 through the product's one-byte serial commands. Fails on any
-// boot failure, error line or panic, a roll that never locks, a roll whose IMU samples came in
-// under the chip's rate, or results that fail chi-square. Chi-square is a coarse check that would
+// then rolls three D6, three D8 and three D20 (slice 0026) through the product's one-byte serial
+// commands. Fails on any boot failure, error line or panic, a roll that never locks, a roll whose
+// IMU samples came in under the chip's rate, or results that fail chi-square. Chi-square is a coarse check that would
 // catch a miscompile like host GCC 13.3's, which turned every launch to the same face (ADR-0009).
 // Takes a screen capture after the last roll of each type, for a person to compare each die's face
 // up with the results band. Writes artifacts/roll-verify/<env>/:
@@ -29,8 +29,11 @@ export const ENVS = ['cardputer', 'm5stickc-plus2'];
 // Three dice, the most a roll throws, so every die-to-die contact the physics has is exercised.
 export const DICE_PER_ROLL = 3;
 // Enough that each face expects at least 5 results, where chi-square's approximation holds:
-// 120 D6 results expect 20 a face, 180 D20 results 9.
-export const ROLLS = { D6: 40, D20: 60 };
+// 120 D6 results expect 20 a face, 120 D8 results 15, 180 D20 results 9. Rolled in this order, which
+// is the product's, so each type is one 'T' from the last.
+export const ROLLS = { D6: 40, D8: 40, D20: 60 };
+// The order PRIMARY steps the type in (src/roll/dice_choice.h, slice 0026).
+export const TYPE_ORDER = ['D6', 'D8', 'D20'];
 // The product's choice at boot (src/roll/dice_choice.h).
 export const BOOT_CHOICE = { type: 'D20', count: 1 };
 const MAX_DICE = 3;
@@ -108,10 +111,13 @@ export function checkImuRate(label, rate) {
   return [];
 }
 
-/** The bytes that take the product from one choice to another: 'T' toggles the type, 'C' cycles the count. */
+/** The bytes that take the product from one choice to another: 'T' steps the type, 'C' cycles the count. */
 export function commandsToReach(current, target) {
+  const from = TYPE_ORDER.indexOf(current.type);
+  const to = TYPE_ORDER.indexOf(target.type);
+  if (from === -1 || to === -1) throw new Error(`no die type ${from === -1 ? current.type : target.type}`);
   const commands = [];
-  if (current.type !== target.type) commands.push('T');
+  for (let type = from; type !== to; type = (type + 1) % TYPE_ORDER.length) commands.push('T');
   for (let count = current.count; count !== target.count; count = (count % MAX_DICE) + 1) commands.push('C');
   return commands;
 }
@@ -366,7 +372,7 @@ async function main() {
     console.error(`FAILED:\n  ${[...new Set(failures)].join('\n  ')}`);
     process.exit(1);
   }
-  console.log('PASSED: every roll locked and both types pass chi-square; compare the captures with the band by eye');
+  console.log('PASSED: every roll locked and every type passes chi-square; compare the captures with the band by eye');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

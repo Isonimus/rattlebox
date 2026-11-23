@@ -14,16 +14,16 @@
 
 // The fairness probe (slice 0008), a host program. scripts/fairness-probe.mjs runs it.
 //
-//   trace <D6|D20> <rolls> <seed>         one die per roll, left to move for TRACE_SECONDS with
+//   trace <D6|D8|D20> <rolls> <seed>         one die per roll, left to move for TRACE_SECONDS with
 //                                         nothing locking, to measure what the rest thresholds,
 //                                         hold time and cocked tolerance are chosen from
-//   tally <D6|D20> <dice> <rolls> <seed>  rolls through the product's thresholds, counting results
-//   replay <D6|D20> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>
+//   tally <D6|D8|D20> <dice> <rolls> <seed>  rolls through the product's thresholds, counting results
+//   replay <D6|D8|D20> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>
 //                                         dice at rest from a launch, then the IMU recording replayed
 //                                         as the tray's gravity, cut extra_s after the shake is
 //                                         detected: how often the result repeats, and whether the
 //                                         physics holds up under a real shake
-//   chain <D6|D20> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...
+//   chain <D6|D8|D20> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...
 //                                         each roll a random recording, cut at a random point, on the
 //                                         dice where the last roll left them, counting results
 //
@@ -110,6 +110,10 @@ bool parseShape(const char* name, DieShape& shape) {
         shape = makeD6(D6_EDGE_MM);
         return true;
     }
+    if (strcmp(name, "D8") == 0) {
+        shape = makeD8(D8_EDGE_MM);
+        return true;
+    }
     if (strcmp(name, "D20") == 0) {
         shape = makeD20(D20_EDGE_MM);
         return true;
@@ -150,10 +154,10 @@ bool parseKick(const char* name, KickPlan& kick) {
 }
 
 int usage() {
-    fprintf(stderr, "usage: fairness_probe trace <D6|D20> <rolls> <seed>\n"
-                    "       fairness_probe tally <D6|D20> <dice 1-%u> <rolls> <seed>\n"
-                    "       fairness_probe replay <D6|D20> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>\n"
-                    "       fairness_probe chain <D6|D20> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...\n",
+    fprintf(stderr, "usage: fairness_probe trace <D6|D8|D20> <rolls> <seed>\n"
+                    "       fairness_probe tally <D6|D8|D20> <dice 1-%u> <rolls> <seed>\n"
+                    "       fairness_probe replay <D6|D8|D20> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>\n"
+                    "       fairness_probe chain <D6|D8|D20> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...\n",
             static_cast<unsigned>(MAX_DICE));
     return EXIT_USAGE;
 }
@@ -165,7 +169,8 @@ int runTrace(const char* name, const DieShape& shape, unsigned long rolls, unsig
     for (size_t i = 0; i < LINEAR_CANDIDATES; i++) printf(i ? ",%g" : "%g", CANDIDATE_LINEAR_MM_PER_S[i]);
     printf(" angular=");
     for (size_t i = 0; i < ANGULAR_CANDIDATES; i++) printf(i ? ",%g" : "%g", CANDIDATE_ANGULAR_RAD_PER_S[i]);
-    printf("\n");
+    // What the product locks by, so the script checks the hold against the false rests just traced.
+    printf(" product_linear=%g product_angular=%g product_hold_s=%g\n", REST_LINEAR_MM_PER_S, REST_ANGULAR_RAD_PER_S, REST_HOLD_S);
 
     SeededSource source(seed);
     for (unsigned long roll = 0; roll < rolls; roll++) {

@@ -41,6 +41,7 @@ struct DieShape {
 };
 
 DieShape makeD6(float edgeLength);
+DieShape makeD8(float edgeLength);
 DieShape makeD20(float edgeLength);
 
 /** @brief The centre of a face's corners, which for a regular polygon is its centroid. */
