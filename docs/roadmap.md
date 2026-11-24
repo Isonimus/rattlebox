@@ -62,7 +62,9 @@ board is captured from shake to locked result.
 
 - **D4, D8, D10, D12 and d% (percentile)**, added as geometry data, each passing the fairness
   test before it ships (ADR-0002, ADR-0009). D4 is read from its top vertex rather than its top
-  face, so it brings its own result-reading rule. The D10 shipped reading 1 to 10, where a
+  face, so it brings its own result-reading rule; it shipped reading the face it rests on, which
+  is the same face its top vertex stands over, declared per die so the other five are untouched
+  (ADR-0033, slice 0032). The D10 shipped reading 1 to 10, where a
   printed D10's 0 face is its 10, which keeps the one numbering rule every die shares (slice
   0027); d% will read a units die's 10 back as 0. The D12 shipped raising the shape's corner limit
   to 5 and its vertex limit to 20, which cost 8,448 bytes of static RAM on both boards and is the

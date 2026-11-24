@@ -8,11 +8,28 @@
 // more (ADR-0030): the D12's 20 vertices and pentagons, and the D20's 20 faces. They are not
 // only a ceiling. They size ContactMemory, world.cpp's contact array, HitFinder's record and
 // DieShape itself, so raising them costs every die: measured at 8,448 bytes of static RAM on
-// both boards and under 2% of a frame, which is what ADR-0030 weighed. The D4 and the d% still
-// to come both fit inside these (docs/roadmap.md).
+// both boards and under 2% of a frame, which is what ADR-0030 weighed. The D4 shipped inside them
+// unchanged, and the d% still to come fits too (docs/roadmap.md).
 constexpr uint8_t DIE_MAX_VERTICES = 20;
 constexpr uint8_t DIE_MAX_FACES = 20;
 constexpr uint8_t FACE_MAX_CORNERS = 5;
+
+/**
+ * @brief Where a die's result is read, which is not the same question for every solid (ADR-0033).
+ *
+ * Five of the six dice are centrally symmetric: every face has another exactly opposed to it, so
+ * the die rests on one face and presents another, and reading the face toward the glass is the
+ * whole rule. A tetrahedron has no opposite face. It rests on a face and raises the vertex
+ * opposite that face, and the numeral a player reads is the resting face's, written at the apex
+ * above it, as it is on a printed D4.
+ */
+enum class NumeralReading : uint8_t {
+    /** @brief The numeral on the face most nearly toward the glass. Zero, so a shape that forgets
+     * to say reads the way every die did before the D4. */
+    TopFace,
+    /** @brief The numeral on the face the die rests on, drawn at the apex standing over it. */
+    Apex,
+};
 
 /** @brief One flat face: a convex polygon, its corners counter-clockwise seen from outside the die. */
 struct DieFace {
@@ -56,8 +73,18 @@ struct DieShape {
      * (ADR-0028). A single hold made every die wait out the worst of them.
      */
     float   holdS;
+    /**
+     * @brief Where this die's result is read (ADR-0033).
+     *
+     * A claim about the solid, not a preference: TopFace asserts every face has one exactly
+     * opposed to it, Apex asserts every vertex has. Standing invariant #7, and test_geometry
+     * checks each catalog entry's declaration against its own geometry.
+     */
+    NumeralReading reading;
 };
 
+/** @brief A regular tetrahedron. The one die read at its apex rather than its top face (ADR-0033). */
+DieShape makeD4(float edgeLength);
 DieShape makeD6(float edgeLength);
 DieShape makeD8(float edgeLength);
 /** @brief A pentagonal trapezohedron. Sized by circumradius: a kite has no single edge length. */

@@ -21,6 +21,10 @@ static const uint8_t TOP_FACE = 7;
 static const uint8_t OPPOSITE_SUM = 21;
 // The tests build the die in pixels, so it draws at a scale of one.
 static const float PX_PER_UNIT = 1.0f;
+// The die numerals are the built-in 6 x 8 font at size 1 (src/render/band_drawing.cpp), so a
+// face with less area than one glyph cannot show a digit whatever is computed for it. Doubled,
+// because twiceAreaPx is.
+static const long TWICE_A_GLYPH_PX = 2 * 6 * 8;
 
 /** @brief The orientation that turns face @p face of @p mesh straight toward the camera. */
 static Rotation faceTowardCamera(const DieShape& shape, uint8_t face) {
@@ -42,6 +46,37 @@ static Vec3 centroidOfNumeral(const DieShape& shape, uint8_t numeral) {
     }
     TEST_FAIL_MESSAGE("no face carries that numeral");
     return {};
+}
+
+/** @brief The orientation that turns face @p face of @p shape straight away from the camera. */
+static Rotation faceFromCamera(const DieShape& shape, uint8_t face) {
+    const Vec3 normal = shape.faces[face].normal;
+    return rotationAbout(cross(normal, {0, 0, -1}), acosf(-normal.z));
+}
+
+/** @brief Whether (@p x, @p y) lies inside the screen-space polygon of @p face. */
+static bool insideFace(const ScreenFace& face, int16_t x, int16_t y) {
+    // A convex polygon wound consistently keeps every inside point on the same side of each edge.
+    bool anyLeft = false;
+    bool anyRight = false;
+    for (uint8_t corner = 0; corner < face.cornerCount; corner++) {
+        const int16_t fromX = face.x[corner], fromY = face.y[corner];
+        const int16_t toX = face.x[(corner + 1) % face.cornerCount], toY = face.y[(corner + 1) % face.cornerCount];
+        const long side = static_cast<long>(toX - fromX) * (y - fromY) - static_cast<long>(toY - fromY) * (x - fromX);
+        if (side > 0) anyRight = true;
+        if (side < 0) anyLeft = true;
+    }
+    return !(anyLeft && anyRight);
+}
+
+/** @brief Twice the area of @p face as drawn, by the shoelace formula; sign-free. */
+static long twiceAreaPx(const ScreenFace& face) {
+    long twice = 0;
+    for (uint8_t corner = 0; corner < face.cornerCount; corner++) {
+        const uint8_t next = (corner + 1) % face.cornerCount;
+        twice += static_cast<long>(face.x[corner]) * face.y[next] - static_cast<long>(face.x[next]) * face.y[corner];
+    }
+    return twice < 0 ? -twice : twice;
 }
 
 static uint8_t faceCountTowardCamera(const DieShape& shape, const Rotation& orientation) {
@@ -132,6 +167,94 @@ void test_each_numeral_sits_over_its_own_face_with_screen_y_down() {
         TEST_ASSERT_EQUAL_INT16(lroundf(CENTRE_PX.x + centre.x), face.numeralX);
         TEST_ASSERT_EQUAL_INT16(lroundf(CENTRE_PX.y - centre.y), face.numeralY);
     }
+}
+
+void test_a_resting_d4_shows_its_hidden_resting_numeral_on_every_visible_face() {
+    // ADR-0033: the three faces a player can see all carry the same digit, the one on the face
+    // underneath, as a printed D4 does. The resting face itself faces away and is not drawn.
+    const DieShape d4 = makeD4(EDGE_PX);
+    for (uint8_t resting = 0; resting < d4.faceCount; resting++) {
+        DieView view;
+        viewDie(d4, PX_PER_UNIT, faceFromCamera(d4, resting), CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+        TEST_ASSERT_EQUAL_UINT8(3, view.faceCount);
+        for (uint8_t i = 0; i < view.faceCount; i++) {
+            TEST_ASSERT_TRUE_MESSAGE(view.faces[i].showsNumeral, "a visible face of a resting D4 shows no numeral");
+            TEST_ASSERT_EQUAL_UINT8(d4.faces[resting].numeral, view.faces[i].numeral);
+            TEST_ASSERT_TRUE_MESSAGE(insideFace(view.faces[i], view.faces[i].numeralX, view.faces[i].numeralY),
+                                     "an apex numeral falls outside its own face");
+        }
+    }
+}
+
+void test_a_resting_d4_draws_its_numerals_however_steep_the_numeral_angle_is_set() {
+    // The sloping faces of a resting D4 face the camera at a third, under the shipped 0.5, so a
+    // threshold rule would draw the die blank. The apex rule does not use one (ADR-0033).
+    const DieShape d4 = makeD4(EDGE_PX);
+    DieView view;
+    viewDie(d4, PX_PER_UNIT, faceFromCamera(d4, 0), CENTRE_PX, WHITE, FROM_CAMERA, ONLY_THE_TOP_FACE, view);
+    TEST_ASSERT_EQUAL_UINT8(3, view.faceCount);
+    for (uint8_t i = 0; i < view.faceCount; i++) TEST_ASSERT_TRUE(view.faces[i].showsNumeral);
+    // And the same pose under the old rule: every visible face is too steep to carry a numeral.
+    for (uint8_t i = 0; i < view.faceCount; i++) {
+        const Vec3 normal = rotate(faceFromCamera(d4, 0), d4.faces[i].normal);
+        if (normal.z > FACING_EDGE_ON) TEST_ASSERT_TRUE(normal.z < 0.5f);
+    }
+}
+
+void test_a_d4_never_draws_a_face_without_the_apex_whatever_its_orientation() {
+    // The only face the apex does not touch is the resting face, and the resting face is by
+    // definition the one turned furthest from the camera, so it is never among the faces drawn
+    // (ADR-0033). That makes "every visible face carries the result" true at every orientation,
+    // not only at rest, which is what keeps a tumbling die from flashing a digit it will not
+    // settle on. Swept rather than spot-checked, because the claim is about all of them.
+    const DieShape d4 = makeD4(EDGE_PX);
+    const uint8_t SWEEP = 12;
+    const float TURN_RAD = 0.37f;
+    // At least one face big enough for a digit at every step of the sweep, so an exemption that
+    // grew to cover everything would fail here rather than pass silently. The sweep as written
+    // clears this with 20 faces; the floor is the claim, not the count.
+    const int FACES_WORTH_CHECKING = SWEEP;
+    int checkedFaces = 0;
+    Rotation orientation = IDENTITY_ROTATION;
+    for (uint8_t step = 0; step < SWEEP; step++) {
+        orientation = rotationAbout({1, 2, 3}, TURN_RAD * step);
+        DieView view;
+        viewDie(d4, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+        TEST_ASSERT_TRUE(view.faceCount >= 1);
+        // The face turned furthest from the camera is the one the die would read here.
+        uint8_t resting = 0;
+        for (uint8_t i = 1; i < d4.faceCount; i++) {
+            if (rotate(orientation, d4.faces[i].normal).z < rotate(orientation, d4.faces[resting].normal).z) resting = i;
+        }
+        for (uint8_t i = 0; i < view.faceCount; i++) {
+            const ScreenFace& face = view.faces[i];
+            TEST_ASSERT_TRUE_MESSAGE(face.showsNumeral, "a visible face of a D4 shows no numeral");
+            TEST_ASSERT_EQUAL_UINT8(d4.faces[resting].numeral, face.numeral);
+            // The mean of a convex polygon's corners is always inside it, so the only way the
+            // drawn point can fall outside is a face projected thinner than the pixel grid it is
+            // rounded onto: a tumbling D4 turned edge-on measured 1.5 px of area and put the
+            // point 3 px off. A face that small cannot show a 6 x 8 digit however the position
+            // is computed, so the claim is made where it means something, and checkedFaces below
+            // keeps that from quietly becoming no faces at all.
+            if (twiceAreaPx(face) < TWICE_A_GLYPH_PX) continue;
+            checkedFaces++;
+            TEST_ASSERT_TRUE_MESSAGE(insideFace(face, face.numeralX, face.numeralY),
+                                     "an apex numeral falls outside a face wide enough to hold it");
+        }
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(FACES_WORTH_CHECKING, checkedFaces);
+}
+
+void test_a_top_face_die_still_hides_numerals_on_faces_too_steep_to_read() {
+    // The D4 ignores numeralMinFacing; the other five must not start ignoring it too.
+    const DieShape d6 = makeD6(EDGE_PX);
+    const float HALF_RIGHT_ANGLE_RAD = 0.7853982f;
+    DieView view;
+    viewDie(d6, PX_PER_UNIT, rotationAbout({1, 0, 0}, HALF_RIGHT_ANGLE_RAD), CENTRE_PX, WHITE, FROM_CAMERA,
+            ONLY_THE_TOP_FACE, view);
+    // Two faces at 45° to the camera: drawn, but neither square enough to carry a numeral.
+    TEST_ASSERT_EQUAL_UINT8(2, view.faceCount);
+    for (uint8_t i = 0; i < view.faceCount; i++) TEST_ASSERT_FALSE(view.faces[i].showsNumeral);
 }
 
 void test_a_face_square_to_the_light_is_the_full_colour() {
@@ -244,6 +367,10 @@ int main() {
     RUN_TEST(test_a_face_turned_to_the_camera_is_drawn_and_its_opposite_is_not);
     RUN_TEST(test_only_faces_within_the_numeral_angle_show_a_numeral_at_their_centre);
     RUN_TEST(test_each_numeral_sits_over_its_own_face_with_screen_y_down);
+    RUN_TEST(test_a_resting_d4_shows_its_hidden_resting_numeral_on_every_visible_face);
+    RUN_TEST(test_a_resting_d4_draws_its_numerals_however_steep_the_numeral_angle_is_set);
+    RUN_TEST(test_a_d4_never_draws_a_face_without_the_apex_whatever_its_orientation);
+    RUN_TEST(test_a_top_face_die_still_hides_numerals_on_faces_too_steep_to_read);
     RUN_TEST(test_a_face_square_to_the_light_is_the_full_colour);
     RUN_TEST(test_a_face_turned_from_the_light_keeps_the_ambient_floor);
     RUN_TEST(test_a_face_more_square_to_the_light_is_never_darker);

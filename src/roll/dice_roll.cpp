@@ -2,7 +2,7 @@
 
 uint8_t shownNumeral(const World& world, uint8_t die) {
     const DieShape& shape = *world.shape;
-    return shape.faces[upFace(shape, world.dice[die].orientation).face].numeral;
+    return shape.faces[readFace(shape, world.dice[die].orientation).face].numeral;
 }
 
 bool everyDieLocked(const DieResult* results, uint8_t dieCount) {

@@ -3,6 +3,7 @@
 namespace {
 
 constexpr float GOLDEN_RATIO = 1.6180339887f;
+constexpr float SQRT_2 = 1.4142135624f;
 
 // Each die's lock hold: the next hundredth of a second strictly above four times the longest
 // pause after which that die still tipped onto another face, over 2,000 traced rolls
@@ -13,12 +14,36 @@ constexpr float GOLDEN_RATIO = 1.6180339887f;
 // Re-measured at ADR-0031's tighter angular rest speed, which is why they are so much shorter
 // than they were: most of what they used to wait out was a die still turning, not balancing.
 // The D6's and the D8's traces showed no false rest at all, so 0.01 s is the rule's floor for
-// them rather than a measured balance, and it is still 2.4 physics steps.
+// them rather than a measured balance, and it is still 2.4 physics steps. Every other hold here,
+// the D4's included, comes from a pause that die's own trace measured.
+// 0.0042 s is the shortest pause of the dice that pause at all: the D12 and the D20 measured
+// 0.0083 s and the D10 0.0167 s, while the D6 and the D8 showed none. Four times it rounds up to
+// 0.02 s. ADR-0031 found that blunter dice linger longer near balance, and a tetrahedron is the
+// sharpest die here at a 70.53 degree dihedral, but the traces do not order the dice by dihedral
+// alone (the D8 is blunter than the D6 and still shows nothing), so this is the measurement and
+// not a deduction from the shape.
+constexpr float D4_HOLD_S = 0.02f;
 constexpr float D6_HOLD_S = 0.01f;
 constexpr float D8_HOLD_S = 0.01f;
 constexpr float D10_HOLD_S = 0.07f;
 constexpr float D12_HOLD_S = 0.04f;
 constexpr float D20_HOLD_S = 0.04f;
+
+// ---- D4
+
+constexpr uint8_t D4_VERTEX_COUNT = 4;
+constexpr uint8_t D4_FACE_COUNT = 4;
+constexpr uint8_t D4_CORNERS = 3;
+// The vertices below are alternate corners of a cube of side 2, which puts the centroid at the
+// origin exactly rather than to rounding. Two of them differ in two coordinates by 2 each, so
+// the edge is 2√2.
+constexpr float D4_UNIT_EDGE_LENGTH = 2.0f * SQRT_2;
+// A uniform regular tetrahedron of edge a: I = m a² / 20, the same about every axis through the
+// centroid (scripts/tetrahedron-probe.mjs, agreeing with the integrated body to 2.8e-17).
+constexpr float TETRAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED = 1.0f / 20;
+
+// Alternate corners of the cube: an even number of minus signs.
+constexpr Vec3 D4_UNIT_VERTICES[D4_VERTEX_COUNT] = {{1, 1, 1}, {1, -1, -1}, {-1, 1, -1}, {-1, -1, 1}};
 
 // ---- D6
 
@@ -90,7 +115,6 @@ DieFace triangleFace(Triangle corners, uint8_t numeral) {
 constexpr uint8_t D8_VERTEX_COUNT = 6;
 constexpr uint8_t D8_FACE_COUNT = 8;
 constexpr uint8_t D8_OPPOSITE_NUMERAL_SUM = D8_FACE_COUNT + 1;
-constexpr float SQRT_2 = 1.4142135624f;
 // A uniform regular octahedron of edge a: I = m a² / 10.
 constexpr float OCTAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED = 1.0f / 10;
 
@@ -239,6 +263,44 @@ void finish(DieShape& shape) {
 
 } // namespace
 
+DieShape makeD4(float edgeLength) {
+    DieShape shape{};
+    const float scale = edgeLength / D4_UNIT_EDGE_LENGTH;
+    shape.vertexCount = D4_VERTEX_COUNT;
+    for (uint8_t i = 0; i < D4_VERTEX_COUNT; i++) shape.vertices[i] = D4_UNIT_VERTICES[i] * scale;
+
+    shape.faceCount = D4_FACE_COUNT;
+    for (uint8_t i = 0; i < D4_FACE_COUNT; i++) {
+        // Face i is the one opposite vertex i, which is the three other vertices. That pairing is
+        // what the apex reading rule names (ADR-0033): the die rests on face i and raises vertex
+        // i, and the probe measures the two to be exactly antipodal.
+        DieFace& face = shape.faces[i];
+        uint8_t next = 0;
+        for (uint8_t corner = 0; corner < D4_VERTEX_COUNT; corner++) {
+            if (corner != i) face.corners[next++] = corner;
+        }
+        face.cornerCount = D4_CORNERS;
+        // Ascending index order winds a face either way depending on which vertex was left out,
+        // so the winding is fixed against the one direction that is known: outward is away from
+        // the vertex this face is opposite. Swapping two corners reverses it.
+        const Vec3 a = shape.vertices[face.corners[0]];
+        const Vec3 raw = cross(shape.vertices[face.corners[1]] - a, shape.vertices[face.corners[2]] - a);
+        if (dot(raw, shape.vertices[i]) > 0) {
+            const uint8_t swapped = face.corners[1];
+            face.corners[1] = face.corners[2];
+            face.corners[2] = swapped;
+        }
+        // 1 to 4, with no opposite-face sum to honour: a tetrahedron has no opposite face.
+        face.numeral = i + 1;
+    }
+
+    shape.inertiaPerMass = TETRAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
+    shape.holdS = D4_HOLD_S;
+    shape.reading = NumeralReading::Apex;
+    finish(shape);
+    return shape;
+}
+
 DieShape makeD6(float edgeLength) {
     DieShape shape{};
     const float half = edgeLength / 2;
@@ -256,6 +318,7 @@ DieShape makeD6(float edgeLength) {
     }
     shape.inertiaPerMass = CUBE_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
     shape.holdS = D6_HOLD_S;
+    shape.reading = NumeralReading::TopFace;
     finish(shape);
     return shape;
 }
@@ -275,6 +338,7 @@ DieShape makeD8(float edgeLength) {
     for (uint8_t i = 0; i < D8_FACE_COUNT; i++) shape.faces[i] = octantFace(D8_OCTANTS[i]);
     shape.inertiaPerMass = OCTAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
     shape.holdS = D8_HOLD_S;
+    shape.reading = NumeralReading::TopFace;
     finish(shape);
     return shape;
 }
@@ -299,6 +363,7 @@ DieShape makeD20(float edgeLength) {
     }
     shape.inertiaPerMass = ICOSAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
     shape.holdS = D20_HOLD_S;
+    shape.reading = NumeralReading::TopFace;
     finish(shape);
     return shape;
 }
@@ -332,6 +397,7 @@ DieShape makeD10(float circumradius) {
     }
     shape.inertiaPerMass = D10_INERTIA_PER_MASS_CIRCUMRADIUS_SQUARED * circumradius * circumradius;
     shape.holdS = D10_HOLD_S;
+    shape.reading = NumeralReading::TopFace;
     finish(shape);
     return shape;
 }
@@ -359,6 +425,7 @@ DieShape makeD12(float edgeLength) {
     }
     shape.inertiaPerMass = DODECAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
     shape.holdS = D12_HOLD_S;
+    shape.reading = NumeralReading::TopFace;
     finish(shape);
     return shape;
 }

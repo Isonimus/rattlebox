@@ -48,6 +48,11 @@ constexpr float D10_CIRCUMRADIUS_MM = D20_EDGE_MM * ICOSAHEDRON_CIRCUMRADIUS_PER
 // edge is 7.13 mm (slice 0029).
 constexpr float DODECAHEDRON_CIRCUMRADIUS_PER_EDGE = 1.4012585f;
 constexpr float D12_EDGE_MM = D20_EDGE_MM * ICOSAHEDRON_CIRCUMRADIUS_PER_EDGE / DODECAHEDRON_CIRCUMRADIUS_PER_EDGE;
+// The D4 spans that same 20 mm. A tetrahedron's circumradius is √(3/8) of its edge, so the edge
+// is 16.31 mm: the largest of any die in the set, because a tetrahedron is the solid that fills
+// its own circumsphere least (slice 0032).
+constexpr float TETRAHEDRON_CIRCUMRADIUS_PER_EDGE = 0.6123724f;
+constexpr float D4_EDGE_MM = D20_EDGE_MM * ICOSAHEDRON_CIRCUMRADIUS_PER_EDGE / TETRAHEDRON_CIRCUMRADIUS_PER_EDGE;
 constexpr float TRAY_WIDTH_MM = 105.0f;
 constexpr float TRAY_PX_PER_MM = SCREEN_WIDTH_PX / TRAY_WIDTH_MM;
 // The screen beneath the strip, 50.3 mm: derived, so the tray's far wall stays the strip's edge.

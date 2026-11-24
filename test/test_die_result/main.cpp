@@ -45,6 +45,12 @@ static Quaternion faceUp(const DieShape& shape, uint8_t face) {
     return quaternionAbout(cross(normal, {0, 0, 1}), acosf(normal.z));
 }
 
+/** @brief The orientation that turns @p face of @p shape straight at the tray floor. */
+static Quaternion faceDown(const DieShape& shape, uint8_t face) {
+    const Vec3 normal = shape.faces[face].normal;
+    return quaternionAbout(cross(normal, {0, 0, -1}), acosf(-normal.z));
+}
+
 static DieBody still(Quaternion orientation) { return {{50, 30, 10}, {0, 0, 0}, orientation, {0, 0, 0}}; }
 
 static DieResult feed(DieResult result, const DieBody& body, uint32_t steps) {
@@ -74,6 +80,53 @@ void test_each_die_waits_out_its_own_hold_and_not_another_dies() {
                             static_cast<uint8_t>(feedShape(d10, still(faceUp(d10, 0)), d6Steps).state));
     TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DieState::Locked),
                             static_cast<uint8_t>(feedShape(d10, still(faceUp(d10, 0)), stepsToHold(d10.holdS)).state));
+}
+
+void test_a_d4_locks_to_the_face_it_is_resting_on_not_to_one_turned_to_the_glass() {
+    // ADR-0033: a tetrahedron presents no face to the glass, so its result is the hidden one it
+    // came to rest on, which is read at the apex standing over it.
+    const DieShape d4 = makeD4(D4_EDGE_MM);
+    for (uint8_t face = 0; face < d4.faceCount; face++) {
+        const DieResult result = feedShape(d4, still(faceDown(d4, face)), stepsToHold(d4.holdS));
+        TEST_ASSERT_EQUAL(DieState::Locked, result.state);
+        TEST_ASSERT_EQUAL_UINT8(d4.faces[face].numeral, result.numeral);
+    }
+}
+
+void test_a_d4_lying_perfectly_flat_is_nowhere_near_flat_by_the_top_face_rule() {
+    // Why the D4 could not simply reuse the rule the other five dice share: at rest its nearest
+    // face to the glass is 70.5° away, against a 0.5° tolerance, so the old rule would have
+    // called every lying-flat D4 cocked and nudged it forever (ADR-0033).
+    const DieShape d4 = makeD4(D4_EDGE_MM);
+    const Quaternion resting = faceDown(d4, 0);
+    TEST_ASSERT_TRUE(upFace(d4, resting).tiltRad > THRESHOLDS.cockedTiltRad);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, acosf(1.0f / 3), upFace(d4, resting).tiltRad);
+    // The rule it does use reads the same pose as perfectly flat.
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0, readFace(d4, resting).tiltRad);
+}
+
+void test_a_propped_d4_is_cocked_and_never_locks() {
+    const DieShape d4 = makeD4(D4_EDGE_MM);
+    const Quaternion propped = quaternionAbout({1, 0, 0}, PROPPED_TILT_RAD) * faceDown(d4, 0);
+    const DieResult result = feedShape(d4, still(propped), stepsToHold(d4.holdS) * 2);
+    TEST_ASSERT_EQUAL(DieState::Cocked, result.state);
+}
+
+void test_every_top_face_die_still_reads_the_face_turned_to_the_glass() {
+    // readFace dispatches on the shape's declaration, so all five symmetric dice must be
+    // untouched by the D4's arrival: for each of them it must agree with upFace, face by face.
+    for (const DieShape& shape : {makeD6(D6_EDGE_MM), makeD8(D8_EDGE_MM), makeD10(D10_CIRCUMRADIUS_MM),
+                                  makeD12(D12_EDGE_MM), makeD20(D20_EDGE_MM)}) {
+        TEST_ASSERT_EQUAL(NumeralReading::TopFace, shape.reading);
+        for (uint8_t face = 0; face < shape.faceCount; face++) {
+            // Which face comes back is not asserted, because faceUp cannot pose one whose normal
+            // is already straight down: its axis is cross(normal, +z), which is zero there. The
+            // claim here is that the two readings agree, and they are fed the same pose whether
+            // or not that pose is the one asked for.
+            const Quaternion pose = faceUp(shape, face);
+            TEST_ASSERT_EQUAL_UINT8(upFace(shape, pose).face, readFace(shape, pose).face);
+        }
+    }
 }
 
 void test_the_up_face_is_the_one_turned_to_the_glass() {
@@ -174,6 +227,10 @@ void test_only_a_new_roll_clears_a_lock() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_each_die_waits_out_its_own_hold_and_not_another_dies);
+    RUN_TEST(test_a_d4_locks_to_the_face_it_is_resting_on_not_to_one_turned_to_the_glass);
+    RUN_TEST(test_a_d4_lying_perfectly_flat_is_nowhere_near_flat_by_the_top_face_rule);
+    RUN_TEST(test_a_propped_d4_is_cocked_and_never_locks);
+    RUN_TEST(test_every_top_face_die_still_reads_the_face_turned_to_the_glass);
     RUN_TEST(test_the_up_face_is_the_one_turned_to_the_glass);
     RUN_TEST(test_a_die_still_for_the_hold_time_locks_to_its_up_face);
     RUN_TEST(test_a_die_still_for_less_than_the_hold_time_is_still_rolling);

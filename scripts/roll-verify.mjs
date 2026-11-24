@@ -29,12 +29,12 @@ export const ENVS = ['cardputer', 'm5stickc-plus2'];
 // Three dice, the most a roll throws, so every die-to-die contact the physics has is exercised.
 export const DICE_PER_ROLL = 3;
 // Enough that each face expects at least 5 results, where chi-square's approximation holds:
-// 120 D6 results expect 20 a face, 120 D8 results 15, 120 D10 results 12, 120 D12 results 10 and
-// 180 D20 results 9.
+// 120 D4 results expect 30 a face, 120 D6 results 20, 120 D8 results 15, 120 D10 results 12,
+// 120 D12 results 10 and 180 D20 results 9.
 // Rolled in this order, which is the product's, so each type is one 'T' from the last.
-export const ROLLS = { D6: 40, D8: 40, D10: 40, D12: 40, D20: 60 };
-// The order PRIMARY steps the type in (src/roll/die_catalog.h, slice 0026).
-export const TYPE_ORDER = ['D6', 'D8', 'D10', 'D12', 'D20'];
+export const ROLLS = { D4: 40, D6: 40, D8: 40, D10: 40, D12: 40, D20: 60 };
+// The order PRIMARY steps the type in (src/roll/die_catalog.h, slices 0026 and 0032).
+export const TYPE_ORDER = ['D4', 'D6', 'D8', 'D10', 'D12', 'D20'];
 // The product's choice at boot (src/roll/dice_choice.h).
 export const BOOT_CHOICE = { type: 'D20', count: 1 };
 const MAX_DICE = 3;

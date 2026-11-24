@@ -41,17 +41,35 @@ struct DieResult {
 };
 
 /**
- * @brief The face pointing most nearly at the glass (the tray's +z), and its angle from it.
+ * @brief A face picked by where it points, and how far from that direction it actually points.
  *
- * The tray's +z, not against gravity: the camera looks through the glass, so the face toward it
- * is the one the player reads, however the tray is tilted.
+ * Measured against the tray's axes, not against gravity: the camera looks through the glass, so
+ * what the player reads depends on the tray's orientation and not on how it is tilted.
  */
 struct UpFace {
     uint8_t face;
     float   tiltRad;
 };
 
+/** @brief The face pointing most nearly at the glass, the tray's +z. */
 UpFace upFace(const DieShape& shape, const Quaternion& orientation);
+
+/**
+ * @brief The face the die is resting on: the one pointing most nearly at the tray floor.
+ *
+ * What a D4 reads, because a tetrahedron presents no face to the glass (ADR-0033). Its tiltRad
+ * is the angle from straight down, so it means exactly what upFace's means and is compared
+ * against the same COCKED_TILT_RAD.
+ */
+UpFace restingFace(const DieShape& shape, const Quaternion& orientation);
+
+/**
+ * @brief The face @p shape reads its result from, by the rule the shape declares (ADR-0033).
+ *
+ * This is the one place the two rules meet. Everything downstream, the hold, the cocked test and
+ * the lock, is the same for both.
+ */
+UpFace readFace(const DieShape& shape, const Quaternion& orientation);
 
 /** @brief The state at the start of a roll: rolling, nothing locked. Only this clears a lock. */
 DieResult startRoll();

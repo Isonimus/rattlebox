@@ -55,6 +55,11 @@ struct DieView {
  * only if that component is at least @p numeralMinFacing, the cosine of the widest angle
  * from the camera at which a numeral still reads on so small a face. @p pxPerUnit scales the
  * shape's length unit to pixels, so the physics can keep real millimetres.
+ *
+ * A die that declares NumeralReading::Apex ignores @p numeralMinFacing, because the rule it
+ * needs is not an angle (ADR-0033): its result is on the face it rests on, which faces away, and
+ * the digit is drawn on every visible face meeting the raised corner. The raised corner is found
+ * from that resting face, so what the screen shows can never disagree with what the die reads.
  */
 void viewDie(const DieShape& shape, float pxPerUnit, const Rotation& orientation, Vec3 centrePx, Rgb base,
              const Lighting& lighting, float numeralMinFacing, DieView& view);

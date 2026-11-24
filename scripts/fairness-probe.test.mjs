@@ -10,12 +10,19 @@ import {
   summarizeChain, summarizeTally, summarizeTraces, summaryMarkdown, tiltGap,
 } from './fairness-probe.mjs';
 
-const GRID = '[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.5 product_hold_s=0.15';
+// The product's cocked tolerance, which the probe program now prints on the grid line so the
+// script checks the tilt gap against the firmware's own value (ADR-0031, slice 0032).
+const COCKED_TILT_DEG = 0.5;
+const GRID = `[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.5 product_hold_s=0.15 product_cocked_tilt_deg=${COCKED_TILT_DEG}`;
 // The product's per-die holds (src/geometry/die_shape.cpp, ADR-0028). Each die's run prints its
 // own grid line, so a fixture of a whole run has one per die and not one for all of them.
-const HOLD_S = { D6: 0.01, D8: 0.01, D10: 0.07, D12: 0.04, D20: 0.04 };
+const HOLD_S = { D4: 0.02, D6: 0.01, D8: 0.01, D10: 0.07, D12: 0.04, D20: 0.04 };
 const gridFor = (die) =>
-  `[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.1 product_hold_s=${HOLD_S[die]}`;
+  `[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.1 product_hold_s=${HOLD_S[die]} product_cocked_tilt_deg=${COCKED_TILT_DEG}`;
+// A run's tilts as the product measures them: dice lying flat a long way under the tolerance,
+// and one propped die a long way over it, so the gap straddles the tolerance as it must.
+const FLAT_TILT_DEG = '0.0500';
+const PROPPED_TILT_DEG = '5.0000';
 // A pause well inside what that die's hold outlasts four times over.
 const restsFor = (die) => `0.0000,0.0000,0.0000,${(HOLD_S[die] / 5).toFixed(4)}`;
 
@@ -57,7 +64,13 @@ function completeRun() {
   const lines = [];
   for (const t of TRACES) {
     lines.push(gridFor(t.die));
-    for (let i = 0; i < t.rolls; i++) lines.push(trace(t.die, '0.0000', restsFor(t.die)));
+    // One propped roll among the flat ones: with no propped die at all there is no gap to find,
+    // and a real run of 2,000 rolls always has some.
+    for (let i = 0; i < t.rolls; i++) {
+      // Not the first roll: the hold tests replace a die's first trace, and a fixture that put
+      // the only propped roll there would lose its tilt gap to an unrelated edit.
+      lines.push(trace(t.die, i === 1 ? PROPPED_TILT_DEG : FLAT_TILT_DEG, restsFor(t.die)));
+    }
   }
   for (const size of TALLY_SIZES) {
     for (const seed of TALLY_SEEDS) lines.push(tally(size.die, size.dice, seed, even(size.rolls * size.dice, FACES[size.die])));
@@ -94,7 +107,8 @@ test('the chi-square statistic matches a worked example', () => {
 
 test('trace, grid and tally lines parse into their fields', () => {
   assert.deepEqual(parseProbeLine(GRID), {
-    kind: 'grid', linear: [1, 5], angular: [0.1, 0.5], product: { linear: 5, angular: 0.5, holdS: 0.15 },
+    kind: 'grid', linear: [1, 5], angular: [0.1, 0.5],
+    product: { linear: 5, angular: 0.5, holdS: 0.15, cockedTiltDeg: COCKED_TILT_DEG },
   });
   const parsed = parseProbeLine(trace('D20', '12.5000'));
   assert.equal(parsed.kind, 'trace');
@@ -195,6 +209,52 @@ test('each die is checked against its own hold, not the longest hold in the run'
     'D6: a false rest of 0.0167 s at 5 mm/s and 0.1 rad/s, which the 0.01 s hold does not outlast 4 times over',
   ]);
   assert.deepEqual(checkRuns(tracingAFalseRestOf(completeRun(), 'D10', '0.0167')), []);
+});
+
+/** @p run with every one of @p die's traces re-tilted by @p tilt, flat rolls and propped alike. */
+function tiltedAt(run, die, flatDeg, proppedDeg) {
+  let seen = 0;
+  return run.map((entry) => {
+    if (entry.kind !== 'trace' || entry.die !== die) return entry;
+    const tilt = seen++ === 1 ? proppedDeg : flatDeg;
+    return parseProbeLine(trace(die, tilt, restsFor(die)));
+  });
+}
+
+test('a propped die tilted no further than the cocked tolerance fails, where before the gap was only printed', () => {
+  // The ledger item ADR-0031 opened: COCKED_TILT_RAD was enforced by somebody reading the
+  // summary. A die whose propped rolls lean only 0.4° would be locked while cocked, and nothing
+  // went red.
+  const run = tiltedAt(completeRun(), 'D20', '0.0500', '0.4000');
+  assert.deepEqual(checkRuns(run), [
+    'D20: a propped die tilted only 0.4°, at or under the 0.5° cocked tolerance, so a cocked die would lock',
+  ]);
+});
+
+test('a die lying flat tilted past the cocked tolerance fails, which would nudge settled dice for ever', () => {
+  const run = tiltedAt(completeRun(), 'D12', '0.6000', '5.0000');
+  assert.deepEqual(checkRuns(run), [
+    'D12: a die lying flat tilted 0.6°, at or past the 0.5° cocked tolerance, so flat dice would be nudged for ever',
+  ]);
+});
+
+test('traces with every roll at one tilt fail: a gap of ratio 1 is not a gap', () => {
+  // tiltGap reports the widest ratio between neighbouring tilts, and with every roll at the same
+  // tilt that ratio is 1. It is still a pair of numbers, so the check has to fail on where they
+  // sit rather than on their absence.
+  const run = tiltedAt(completeRun(), 'D8', '0.0500', '0.0500');
+  assert.deepEqual(checkRuns(run), [
+    'D8: a propped die tilted only 0.05°, at or under the 0.5° cocked tolerance, so a cocked die would lock',
+  ]);
+});
+
+test('traces with nothing above the noise floor fail rather than quietly checking nothing', () => {
+  // No tilt clears the floor, so there is no gap at all. Passing on that is how a check that
+  // cannot run looks exactly like a check that ran.
+  const run = tiltedAt(completeRun(), 'D10', '0.0000', '0.0000');
+  assert.deepEqual(checkRuns(run), [
+    'D10: no tilt gap measured, so nothing checks the 0.5° cocked tolerance',
+  ]);
 });
 
 test('a trace short of a false rest per grid point is named, not read as a pause of NaN that passes the hold', () => {
@@ -320,7 +380,7 @@ test('replays pool per die, gesture, kick and cut, keeping the worst take', () =
   assert.match(markdown, /\| D6 \| gentle \| none \| 81\.67% \(90\.00%\), 0\.000 \|/);
   assert.match(markdown, /\| D6 \| 1 \| spin=0\.1 \| 1 \| 3400 \| [\d.]+ \| [\d.]+ \| 16\.68% \(16\.67%\) \| 0\.988 \| 3 of 3400 \|/);
   // Every die the replays roll has its chance in the header, the D8 included (slice 0026).
-  assert.match(markdown, /Chance: D6 16\.67%, D8 12\.50%, D10 10\.00%, D12 8\.33%, D20 5\.00%\./);
+  assert.match(markdown, /Chance: D4 25\.00%, D6 16\.67%, D8 12\.50%, D10 10\.00%, D12 8\.33%, D20 5\.00%\./);
 });
 
 test('each take of a pooled replay rolls from its own seed', () => {

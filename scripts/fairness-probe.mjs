@@ -34,6 +34,7 @@ export const TRACES = [
   { die: 'D8', rolls: 2000, seed: 1 },
   { die: 'D10', rolls: 2000, seed: 1 },
   { die: 'D12', rolls: 2000, seed: 1 },
+  { die: 'D4', rolls: 2000, seed: 1 },
 ];
 // The hold must outlast the longest false rest this many times over (ADR-0009).
 export const HOLD_MARGIN = 4;
@@ -54,8 +55,11 @@ export const TALLY_SIZES = [
   // 9,000 results by the same calculation, against 31.264 at 11 degrees of freedom (slice 0029).
   { die: 'D12', dice: 1, rolls: 9000 },
   { die: 'D12', dice: 3, rolls: 3000 },
+  // 1,900 results by the same calculation, against 16.266 at 3 degrees of freedom (slice 0032).
+  { die: 'D4', dice: 1, rolls: 1900 },
+  { die: 'D4', dice: 3, rolls: 634 },
 ];
-export const FACES = { D6: 6, D8: 8, D10: 10, D12: 12, D20: 20 };
+export const FACES = { D4: 4, D6: 6, D8: 8, D10: 10, D12: 12, D20: 20 };
 // The chance a die lands on any given face, for the shake report's header.
 const CHANCES = Object.entries(FACES).map(([die, faces]) => `${die} ${(100 / faces).toFixed(2)}%`).join(', ');
 
@@ -110,7 +114,7 @@ export const REPLAYS = [
   ...replays(['D6', 'D20'], [PRODUCT_KICK], PARTICIPANT_TAKES, [0]),
   // The D8, the D10 and the D12 with the product's kick only: the other kicks were evidence for
   // choosing it (slice 0026), and the kick is not in question again for a later die (slice 0027).
-  ...replays(['D8', 'D10', 'D12'], [PRODUCT_KICK], [...GENTLE_TAKES, ...PARTICIPANT_TAKES], [0]),
+  ...replays(['D8', 'D10', 'D12', 'D4'], [PRODUCT_KICK], [...GENTLE_TAKES, ...PARTICIPANT_TAKES], [0]),
 ];
 
 // Rolls one after another, each starting where the last ended, on a random take cut at a random
@@ -122,7 +126,7 @@ export const CHAINS = [
 ];
 
 const GRID =
-  /^\[trace-grid\] linear=([\d.,]+) angular=([\d.,]+) product_linear=([\d.]+) product_angular=([\d.]+) product_hold_s=([\d.]+)$/;
+  /^\[trace-grid\] linear=([\d.,]+) angular=([\d.,]+) product_linear=([\d.]+) product_angular=([\d.]+) product_hold_s=([\d.]+) product_cocked_tilt_deg=([\d.]+)$/;
 const KEY_VALUES = /(\w+)=(\S+)/g;
 
 function keyValues(line) {
@@ -141,7 +145,12 @@ export function parseProbeLine(line) {
       kind: 'grid',
       linear: numbers(grid[1]),
       angular: numbers(grid[2]),
-      product: { linear: Number(grid[3]), angular: Number(grid[4]), holdS: Number(grid[5]) },
+      product: {
+        linear: Number(grid[3]),
+        angular: Number(grid[4]),
+        holdS: Number(grid[5]),
+        cockedTiltDeg: Number(grid[6]),
+      },
     };
   }
   if (line.startsWith('[trace] ')) {
@@ -464,6 +473,45 @@ function checkHold(parsed) {
   return failures;
 }
 
+/**
+ * The cocked tolerance must fall inside each die's measured tilt gap.
+ *
+ * Until slice 0032 the gap was printed and nothing read it, so COCKED_TILT_RAD was enforced by
+ * somebody noticing (ADR-0031). A threshold above the propped minimum would lock cocked dice; one
+ * below the flat maximum would nudge dice that are lying flat for ever. Both are silent, and the
+ * D4 changes what the tilt is measured from, which is the wrong moment to be reading summaries by
+ * eye (ADR-0033).
+ */
+function checkTiltGap(parsed) {
+  const failures = [];
+  const tiltOf = new Map();
+  let latest = null;
+  for (const entry of parsed) {
+    if (entry.kind === 'grid') latest = entry;
+    if (entry.kind === 'trace' && latest !== null) tiltOf.set(entry.die, latest.product.cockedTiltDeg);
+  }
+  for (const die of summarizeTraces(parsed)) {
+    const tolerance = tiltOf.get(die.die);
+    if (tolerance === undefined || Number.isNaN(tolerance)) {
+      failures.push(`${die.die}: no cocked tolerance on the trace grid to check the tilt gap against`);
+      continue;
+    }
+    if (!die.tiltGap) {
+      failures.push(`${die.die}: no tilt gap measured, so nothing checks the ${tolerance}° cocked tolerance`);
+      continue;
+    }
+    const { flatMaxDeg, proppedMinDeg } = die.tiltGap;
+    // Written so a NaN fails rather than slipping past.
+    if (!(flatMaxDeg < tolerance)) {
+      failures.push(`${die.die}: a die lying flat tilted ${flatMaxDeg}°, at or past the ${tolerance}° cocked tolerance, so flat dice would be nudged for ever`);
+    }
+    if (!(proppedMinDeg > tolerance)) {
+      failures.push(`${die.die}: a propped die tilted only ${proppedMinDeg}°, at or under the ${tolerance}° cocked tolerance, so a cocked die would lock`);
+    }
+  }
+  return failures;
+}
+
 /** Every failure across the probe's output: unsettled rolls, unfair tallies, missing runs. */
 export function checkRuns(parsed) {
   const failures = [];
@@ -487,7 +535,7 @@ export function checkRuns(parsed) {
     const count = parsed.filter((entry) => entry.kind === 'trace' && entry.die === trace.die).length;
     if (count !== trace.rolls) failures.push(`${trace.die}: ${count} traces of ${trace.rolls}`);
   }
-  failures.push(...checkHold(parsed));
+  failures.push(...checkHold(parsed), ...checkTiltGap(parsed));
 
   const replayRuns = parsed.filter((entry) => entry.kind === 'replay');
   const chains = parsed.filter((entry) => entry.kind === 'chain');

@@ -138,6 +138,7 @@ actually wired (R11), so a row cannot claim a check that runs nowhere.
 | 4 | Timing derived from IMU samples uses their timestamps, never the configured output rate: the chips' clocks were measured up to 1.1% off it. | ADR-0005 | review-only |
 | 5 | Every I2C bus is cleared with `clearI2cBus` before its controller starts, and a failed clear fails the boot: a reset mid-read leaves a device sending into the boot's first transfer. | ADR-0019 | review-only |
 | 6 | A change to what a person sees or does with the device, or to how they build, flash or verify it, updates `README.md` in the same commit, screen captures included when the screen changed. The README is the project's front page, and one that describes an older build misleads every first reader. | stele:ADR-0010 | review-only (`/wrap-up` question 1) |
+| 7 | A die type declares where its result is read, and the declaration must hold of its own solid: `NumeralReading::TopFace` requires every face to have one exactly opposed to it, `NumeralReading::Apex` requires every vertex to. "The face toward the glass" was a complete rule only while every die was centrally symmetric, and a die that declares the wrong one locks nothing and is nudged for ever, in silence. | ADR-0033 | verified_by: `test/test_geometry` (`npm test`, over every catalog entry) |
 
 When an ADR's consequences create a rule that all *future* work must follow, add the row
 in the same commit as the ADR.

@@ -60,7 +60,8 @@ constexpr size_t ANGULAR_CANDIDATES = sizeof(CANDIDATE_ANGULAR_RAD_PER_S) / size
 struct TraceStep {
     float   linearMmPerS;
     float   angularRadPerS;
-    uint8_t upFace;
+    /** @brief The face the die would read here, by its own rule: not always the top one (ADR-0033). */
+    uint8_t readFace;
     float   tiltRad;
 };
 
@@ -72,8 +73,10 @@ public:
     void onStep(const World& world) override {
         if (_count >= TRACE_STEPS) abort();
         const DieBody& body = world.dice[0];
-        const UpFace top = upFace(_shape, body.orientation);
-        _steps[_count++] = {length(body.velocity), length(body.angularVelocity), top.face, top.tiltRad};
+        // By the die's own reading rule, not the top face. A tetrahedron's top face is a near-tie
+        // between three sloping faces, so tracking it would count rounding as a tip (ADR-0033).
+        const UpFace read = readFace(_shape, body.orientation);
+        _steps[_count++] = {length(body.velocity), length(body.angularVelocity), read.face, read.tiltRad};
     }
 
     uint32_t count() const { return _count; }
@@ -85,17 +88,17 @@ private:
     uint32_t        _count = 0;
 };
 
-/** @brief The last step at which the die's up face differed from the step before it. */
+/** @brief The last step at which the face the die reads differed from the step before it. */
 uint32_t lastFaceChange(const TraceRecorder& trace) {
     uint32_t last = 0;
     for (uint32_t step = 1; step < trace.count(); step++) {
-        if (trace.at(step).upFace != trace.at(step - 1).upFace) last = step;
+        if (trace.at(step).readFace != trace.at(step - 1).readFace) last = step;
     }
     return last;
 }
 
 /**
- * @brief The longest stretch below both thresholds that began before the up face's last change:
+ * @brief The longest stretch below both thresholds that began before the read face's last change:
  * a die that paused that long and then tipped onto another face. A hold time must outlast it,
  * or the die would lock to a face it then left.
  */
@@ -189,8 +192,11 @@ int runTrace(const char* name, const DieShape& shape, unsigned long rolls, unsig
     for (size_t i = 0; i < ANGULAR_CANDIDATES; i++) printf(i ? ",%g" : "%g", CANDIDATE_ANGULAR_RAD_PER_S[i]);
     // What the product locks this die by, so the script checks its hold against the false rests
     // just traced for it. The hold is the die's own (ADR-0028), read off the body being traced.
-    printf(" product_linear=%g product_angular=%g product_hold_s=%g\n", REST_LINEAR_MM_PER_S, REST_ANGULAR_RAD_PER_S,
-           static_cast<double>(shape.holdS));
+    // The cocked tolerance goes out with them so the script can fail on the tilt gap against the
+    // value the firmware locks by, rather than against a copy of it that could drift (ADR-0031).
+    printf(" product_linear=%g product_angular=%g product_hold_s=%g product_cocked_tilt_deg=%g\n",
+           REST_LINEAR_MM_PER_S, REST_ANGULAR_RAD_PER_S, static_cast<double>(shape.holdS),
+           static_cast<double>(COCKED_TILT_RAD / RAD_PER_DEG));
 
     SeededSource source(seed);
     for (unsigned long roll = 0; roll < rolls; roll++) {

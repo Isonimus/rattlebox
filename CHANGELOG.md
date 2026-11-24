@@ -17,6 +17,11 @@ decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
 - **The D12.** A twelve-sided die, rolled one to three at a time like the others and as wide as
   the D20. It passed the same fairness test over 9,000 simulated results. The type order is now
   D6, D8, D10, D12, D20.
+- **The D4.** A four-sided die, rolled one to three at a time like the others and as wide as the
+  D20. It is read the way a printed D4 is: the die comes to rest on a face, and the number at the
+  raised corner, repeated on all three faces you can see, is the result. It passed the same
+  fairness test over 1,900 simulated results. The type order is now D4, D6, D8, D10, D12, D20, so
+  the type button steps to the D4 first.
 - **Each die waits its own time before its result locks**, where every die used to wait the same
   0.15 s. How long a die can balance on an edge before it topples depends on its shape, so the
   wait is now measured per die: 0.01 s for a D6 and a D8, 0.04 s for a D12 and a D20, and 0.07 s

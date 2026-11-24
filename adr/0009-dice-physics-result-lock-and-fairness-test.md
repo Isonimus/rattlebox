@@ -124,6 +124,12 @@ modref summaries for these functions looked correct; it has not run them on a de
   ratcheting. The angular speed is 0.1 rad/s, and at it the holds are D6 0.01 s, D8 0.01 s,
   D10 0.07 s, D12 0.04 s and D20 0.04 s. The 5 mm/s, the lying flat within 0.5° and the four-times
   method all stand.*
+  *Corrected 2026-11-24 by ADR-0033: "its up face" assumes the die has one. Every die that
+  existed when this was written is centrally symmetric, so resting on a face and presenting a
+  face were the same event; a tetrahedron separates them and has no face toward the glass at
+  all. A die now declares where its result is read, and the D4 reads the face it rests on,
+  shown at the apex above it. The 5 mm/s, the 0.1 rad/s, the 0.5° and the four-times method all
+  stand, and so does this claim for the five symmetric dice.*
 - **A die at rest past 0.5° is cocked and is nudged at once**: 400 mm/s upward in a random
   direction and 5 rad/s about a random axis, from the same RNG as the launch, and its result starts
   over. Never aimed at a face, so no result is steered (ADR-0002); immediate, so the player cannot

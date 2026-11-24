@@ -3,6 +3,8 @@
 #include "../../src/geometry/rotation.cpp"
 #include "../../src/geometry/die_shape.h"
 #include "../../src/geometry/die_shape.cpp"
+#include "../../src/roll/die_catalog.h"
+#include "../../src/roll/die_catalog.cpp"
 
 // The shapes are checked by properties every regular solid has, not against a copy of their
 // own tables, so a wrong index cannot agree with itself.
@@ -24,6 +26,7 @@ struct Expected {
     uint8_t     cornersPerFace;
 };
 
+static const Expected D4{"D4", 4, 4, 3};
 static const Expected D6{"D6", 8, 6, 4};
 static const Expected D8{"D8", 6, 8, 3};
 static const Expected D10{"D10", 12, 10, 4};
@@ -92,21 +95,69 @@ static void assertEveryFaceIsFlatWindsOutwardAndCarriesItsUnitNormal(const DieSh
     }
 }
 
-static void assertNumeralsRunOneToNAndOppositeFacesSumToNPlusOne(const DieShape& shape) {
+static void assertNumeralsRunOneToN(const DieShape& shape) {
     bool seen[DIE_MAX_FACES + 1] = {};
     for (uint8_t i = 0; i < shape.faceCount; i++) {
         const uint8_t numeral = shape.faces[i].numeral;
         TEST_ASSERT_TRUE(numeral >= 1 && numeral <= shape.faceCount);
         TEST_ASSERT_FALSE(seen[numeral]);
         seen[numeral] = true;
-        uint8_t opposites = 0;
+    }
+}
+
+/** @brief How many of @p shape's faces point exactly opposite face @p face. */
+static uint8_t facesOpposite(const DieShape& shape, uint8_t face) {
+    uint8_t opposites = 0;
+    for (uint8_t j = 0; j < shape.faceCount; j++) {
+        if (dot(shape.faces[face].normal, shape.faces[j].normal) < -1.0f + TOLERANCE) opposites++;
+    }
+    return opposites;
+}
+
+static void assertNumeralsRunOneToNAndOppositeFacesSumToNPlusOne(const DieShape& shape) {
+    assertNumeralsRunOneToN(shape);
+    for (uint8_t i = 0; i < shape.faceCount; i++) {
+        const uint8_t numeral = shape.faces[i].numeral;
         for (uint8_t j = 0; j < shape.faceCount; j++) {
             if (dot(shape.faces[i].normal, shape.faces[j].normal) < -1.0f + TOLERANCE) {
-                opposites++;
                 TEST_ASSERT_EQUAL_UINT8(shape.faceCount + 1, numeral + shape.faces[j].numeral);
             }
         }
-        TEST_ASSERT_EQUAL_UINT8(1, opposites);
+        TEST_ASSERT_EQUAL_UINT8(1, facesOpposite(shape, i));
+    }
+}
+
+/**
+ * @brief Invariant #7's TopFace half: every face has exactly one exactly opposed to it.
+ *
+ * What makes "the face toward the glass" a complete reading rule. A die declaring TopFace is
+ * claiming this about its own solid (ADR-0033), so the claim is checked rather than trusted.
+ */
+static void assertEveryFaceIsOppositeOneFace(const DieShape& shape) {
+    for (uint8_t i = 0; i < shape.faceCount; i++) {
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(1, facesOpposite(shape, i), "a TopFace die has a face with no opposite");
+    }
+}
+
+/**
+ * @brief Invariant #7's Apex half: every vertex points exactly opposite one face, and belongs to
+ * none of that face's corners.
+ *
+ * What makes "the face it rests on, read at the apex above it" well defined, and what lets the
+ * renderer find the apex as the one vertex the resting face does not touch (ADR-0033).
+ */
+static void assertEveryVertexIsOppositeOneFace(const DieShape& shape) {
+    for (uint8_t v = 0; v < shape.vertexCount; v++) {
+        const Vec3 direction = normalized(shape.vertices[v]);
+        uint8_t opposites = 0;
+        for (uint8_t i = 0; i < shape.faceCount; i++) {
+            if (dot(direction, shape.faces[i].normal) > -1.0f + TOLERANCE) continue;
+            opposites++;
+            for (uint8_t corner = 0; corner < shape.faces[i].cornerCount; corner++) {
+                TEST_ASSERT_NOT_EQUAL_MESSAGE(v, shape.faces[i].corners[corner], "an apex touches its own resting face");
+            }
+        }
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(1, opposites, "an Apex die has a vertex with no opposite face");
     }
 }
 
@@ -208,6 +259,52 @@ static void assertIsohedralSolid(const DieShape& shape, const Expected& expected
     assertEveryFaceIsTheSameDistanceFromTheCentre(shape);
 }
 
+/**
+ * @brief A regular solid with no opposite face at all: the tetrahedron.
+ *
+ * Everything assertRegularSolid checks except the opposite-face numbering, which a tetrahedron
+ * cannot have, because no two of its faces are parallel (ADR-0033).
+ */
+static void assertRegularSolidWithoutOpposites(const DieShape& shape, const Expected& expected) {
+    assertCounts(shape, expected);
+    assertEveryEdgeHasTheRequestedLength(shape);
+    assertTheFacesCloseTheBody(shape);
+    assertEveryFaceIsFlatWindsOutwardAndCarriesItsUnitNormal(shape);
+    assertNumeralsRunOneToN(shape);
+    assertInertiaMatchesTheIntegratedBody(shape);
+    assertTheCircumradiusReachesEveryVertex(shape);
+    assertEveryFaceIsTheSameDistanceFromTheCentre(shape);
+}
+
+void test_the_d4_is_a_closed_outward_tetrahedron_numbered_one_to_four() {
+    assertRegularSolidWithoutOpposites(makeD4(EDGE), D4);
+}
+
+void test_no_two_of_the_d4s_faces_are_opposed_which_is_why_it_needs_its_own_reading_rule() {
+    const DieShape d4 = makeD4(EDGE);
+    for (uint8_t i = 0; i < d4.faceCount; i++) TEST_ASSERT_EQUAL_UINT8(0, facesOpposite(d4, i));
+    // What it has instead: every vertex exactly opposite a face it does not touch.
+    assertEveryVertexIsOppositeOneFace(d4);
+}
+
+void test_the_d4s_inertia_is_an_edge_squared_over_twenty_the_tetrahedrons_closed_form() {
+    // An independent route to the same number as the integrated body above: m a² / 20.
+    TEST_ASSERT_FLOAT_WITHIN(EDGE * EDGE * TOLERANCE, EDGE * EDGE / 20.0f, makeD4(EDGE).inertiaPerMass);
+}
+
+void test_every_catalog_die_declares_a_reading_rule_its_own_geometry_supports() {
+    // Standing invariant #7. A declaration is a claim about the solid, so it is checked against
+    // the solid rather than against a list of which die is which (ADR-0033).
+    for (uint8_t type = 0; type < DIE_TYPE_COUNT; type++) {
+        const DieKind& kind = dieKind(static_cast<DieType>(type));
+        if (kind.shape.reading == NumeralReading::Apex) {
+            assertEveryVertexIsOppositeOneFace(kind.shape);
+        } else {
+            assertEveryFaceIsOppositeOneFace(kind.shape);
+        }
+    }
+}
+
 void test_the_d6_is_a_closed_outward_cube_with_opposites_summing_to_7() {
     assertRegularSolid(makeD6(EDGE), D6);
 }
@@ -283,6 +380,10 @@ void test_the_identity_moves_nothing() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_the_d4_is_a_closed_outward_tetrahedron_numbered_one_to_four);
+    RUN_TEST(test_no_two_of_the_d4s_faces_are_opposed_which_is_why_it_needs_its_own_reading_rule);
+    RUN_TEST(test_the_d4s_inertia_is_an_edge_squared_over_twenty_the_tetrahedrons_closed_form);
+    RUN_TEST(test_every_catalog_die_declares_a_reading_rule_its_own_geometry_supports);
     RUN_TEST(test_the_d6_is_a_closed_outward_cube_with_opposites_summing_to_7);
     RUN_TEST(test_the_d8_is_a_closed_outward_octahedron_with_opposites_summing_to_9);
     RUN_TEST(test_the_d10_is_a_closed_outward_trapezohedron_with_opposites_summing_to_11);
