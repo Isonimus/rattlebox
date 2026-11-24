@@ -113,10 +113,11 @@ test('the commands to reach a choice step the type forward through the cycle and
   assert.deepEqual(commandsToReach({ type: 'D20', count: 1 }, { type: 'D6', count: 3 }), ['T', 'C', 'C']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D8', count: 3 }), ['T']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D10', count: 3 }), ['T', 'T']);
-  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D20', count: 3 }), ['T', 'T', 'T']);
-  assert.deepEqual(commandsToReach({ type: 'D10', count: 3 }, { type: 'D6', count: 3 }), ['T', 'T']);
+  assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D20', count: 3 }), ['T', 'T', 'T', 'T']);
+  assert.deepEqual(commandsToReach({ type: 'D10', count: 3 }, { type: 'D6', count: 3 }), ['T', 'T', 'T']);
   assert.deepEqual(commandsToReach({ type: 'D20', count: 3 }, { type: 'D8', count: 3 }), ['T', 'T']);
-  assert.throws(() => commandsToReach({ type: 'D20', count: 1 }, { type: 'D12', count: 1 }), /no die type D12/);
+  // A name no die carries, so this keeps meaning "unknown type" as dice are added.
+  assert.throws(() => commandsToReach({ type: 'D20', count: 1 }, { type: 'D7', count: 1 }), /no die type D7/);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D6', count: 2 }), ['C', 'C']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 2 }, { type: 'D6', count: 2 }), []);
 });

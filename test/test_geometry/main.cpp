@@ -27,6 +27,7 @@ struct Expected {
 static const Expected D6{"D6", 8, 6, 4};
 static const Expected D8{"D8", 6, 8, 3};
 static const Expected D10{"D10", 12, 10, 4};
+static const Expected D12{"D12", 20, 12, 5};
 static const Expected D20{"D20", 12, 20, 3};
 
 static void assertVecEqual(Vec3 expected, Vec3 actual) {
@@ -247,6 +248,10 @@ void test_the_d10s_apexes_reach_further_than_its_ring_so_its_circumradius_is_not
     TEST_ASSERT_FLOAT_WITHIN(TOLERANCE, EDGE, d10.circumradius);
 }
 
+void test_the_d12_is_a_closed_outward_dodecahedron_with_opposites_summing_to_13() {
+    assertRegularSolid(makeD12(EDGE), D12);
+}
+
 void test_the_d20_is_a_closed_outward_icosahedron_with_opposites_summing_to_21() {
     assertRegularSolid(makeD20(EDGE), D20);
 }
@@ -283,6 +288,7 @@ int main() {
     RUN_TEST(test_the_d10_is_a_closed_outward_trapezohedron_with_opposites_summing_to_11);
     RUN_TEST(test_the_d10_has_two_edge_lengths_in_adjacent_pairs_so_each_face_is_a_kite);
     RUN_TEST(test_the_d10s_apexes_reach_further_than_its_ring_so_its_circumradius_is_not_every_vertex);
+    RUN_TEST(test_the_d12_is_a_closed_outward_dodecahedron_with_opposites_summing_to_13);
     RUN_TEST(test_the_d20_is_a_closed_outward_icosahedron_with_opposites_summing_to_21);
     RUN_TEST(test_a_face_centre_is_the_mean_of_its_corners);
     RUN_TEST(test_a_quarter_turn_about_z_takes_x_to_y);

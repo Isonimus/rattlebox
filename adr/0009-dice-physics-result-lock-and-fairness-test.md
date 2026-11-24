@@ -119,6 +119,11 @@ modref summaries for these functions looked correct; it has not run them on a de
   tips is a fact about its shape and not about the product. The holds are D6 0.04 s, D20 0.16 s,
   D8 0.17 s and D10 0.21 s. The rest of this claim, the two speeds and lying flat within 0.5°,
   stands.*
+  *Corrected 2026-11-24 by ADR-0031: 0.5 rad/s is not rest. A die creeping over an edge at under
+  it was counted as still, and the holds had been growing to wait that out, which is why they kept
+  ratcheting. The angular speed is 0.1 rad/s, and at it the holds are D6 0.01 s, D8 0.01 s,
+  D10 0.07 s, D12 0.04 s and D20 0.04 s. The 5 mm/s, the lying flat within 0.5° and the four-times
+  method all stand.*
 - **A die at rest past 0.5° is cocked and is nudged at once**: 400 mm/s upward in a random
   direction and 5 rad/s about a random axis, from the same RNG as the launch, and its result starts
   over. Never aimed at a face, so no result is steered (ADR-0002); immediate, so the player cannot

@@ -33,6 +33,7 @@ export const TRACES = [
   { die: 'D6', rolls: 2000, seed: 1 },
   { die: 'D8', rolls: 2000, seed: 1 },
   { die: 'D10', rolls: 2000, seed: 1 },
+  { die: 'D12', rolls: 2000, seed: 1 },
 ];
 // The hold must outlast the longest false rest this many times over (ADR-0009).
 export const HOLD_MARGIN = 4;
@@ -50,8 +51,11 @@ export const TALLY_SIZES = [
   // 7,000 results by the same calculation, against 27.877 at 9 degrees of freedom (slice 0027).
   { die: 'D10', dice: 1, rolls: 7000 },
   { die: 'D10', dice: 3, rolls: 2334 },
+  // 9,000 results by the same calculation, against 31.264 at 11 degrees of freedom (slice 0029).
+  { die: 'D12', dice: 1, rolls: 9000 },
+  { die: 'D12', dice: 3, rolls: 3000 },
 ];
-export const FACES = { D6: 6, D8: 8, D10: 10, D20: 20 };
+export const FACES = { D6: 6, D8: 8, D10: 10, D12: 12, D20: 20 };
 // The chance a die lands on any given face, for the shake report's header.
 const CHANCES = Object.entries(FACES).map(([die, faces]) => `${die} ${(100 / faces).toFixed(2)}%`).join(', ');
 
@@ -104,9 +108,9 @@ export const REPLAYS = [
   // Other people's shakes with the product's kick, cut where a shake has stirred least: a kind of
   // shake the spin does not randomize shows as a pool with too many repeats (slice 0023).
   ...replays(['D6', 'D20'], [PRODUCT_KICK], PARTICIPANT_TAKES, [0]),
-  // The D8 and the D10 with the product's kick only: the other kicks were evidence for choosing
-  // it (slice 0026), and the kick is not in question again for a later die (slice 0027).
-  ...replays(['D8', 'D10'], [PRODUCT_KICK], [...GENTLE_TAKES, ...PARTICIPANT_TAKES], [0]),
+  // The D8, the D10 and the D12 with the product's kick only: the other kicks were evidence for
+  // choosing it (slice 0026), and the kick is not in question again for a later die (slice 0027).
+  ...replays(['D8', 'D10', 'D12'], [PRODUCT_KICK], [...GENTLE_TAKES, ...PARTICIPANT_TAKES], [0]),
 ];
 
 // Rolls one after another, each starting where the last ended, on a random take cut at a random

@@ -60,7 +60,7 @@ static DieResult feedShape(const DieShape& shape, const DieBody& body, uint32_t 
 
 void test_each_die_waits_out_its_own_hold_and_not_another_dies() {
     // The hold is a property of the body, not of the product (ADR-0028): a D6 drops onto the next
-    // face at once and locks after 0.04 s, while a D10 can balance on an edge and waits 0.21 s.
+    // face at once and locks after 0.01 s, while a D10 can balance on an edge and waits 0.07 s.
     const DieShape d6 = makeD6(D6_EDGE_MM);
     const DieShape d10 = makeD10(D10_CIRCUMRADIUS_MM);
     TEST_ASSERT_TRUE_MESSAGE(d6.holdS < d10.holdS, "a D6 should not wait as long as a D10");

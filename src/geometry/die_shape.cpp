@@ -9,10 +9,16 @@ constexpr float GOLDEN_RATIO = 1.6180339887f;
 // (ADR-0028, scripts/fairness-probe.mjs). They live here, with the dice, because how long a body
 // can balance on an edge before it goes over is a fact about the body, like its inertia; a
 // single product-wide hold made every die wait out the worst of them.
-constexpr float D6_HOLD_S = 0.04f;
-constexpr float D8_HOLD_S = 0.17f;
-constexpr float D10_HOLD_S = 0.21f;
-constexpr float D20_HOLD_S = 0.16f;
+//
+// Re-measured at ADR-0031's tighter angular rest speed, which is why they are so much shorter
+// than they were: most of what they used to wait out was a die still turning, not balancing.
+// The D6's and the D8's traces showed no false rest at all, so 0.01 s is the rule's floor for
+// them rather than a measured balance, and it is still 2.4 physics steps.
+constexpr float D6_HOLD_S = 0.01f;
+constexpr float D8_HOLD_S = 0.01f;
+constexpr float D10_HOLD_S = 0.07f;
+constexpr float D12_HOLD_S = 0.04f;
+constexpr float D20_HOLD_S = 0.04f;
 
 // ---- D6
 
@@ -156,6 +162,63 @@ DieFace kiteFace(uint8_t apex, uint8_t near, uint8_t far, uint8_t alsoNear, uint
     return {{apex, near, far, alsoNear}, KITE_CORNERS, {}, numeral};
 }
 
+// ---- D12
+
+constexpr uint8_t D12_VERTEX_COUNT = 20;
+constexpr uint8_t D12_FACE_COUNT = 12;
+constexpr uint8_t PENTAGON_CORNERS = 5;
+constexpr uint8_t HALF_D12_VERTICES = D12_VERTEX_COUNT / 2;
+constexpr uint8_t HALF_D12_FACES = D12_FACE_COUNT / 2;
+constexpr uint8_t D12_OPPOSITE_NUMERAL_SUM = D12_FACE_COUNT + 1;
+constexpr float INVERSE_GOLDEN_RATIO = 1.0f / GOLDEN_RATIO;
+// The vertices below are a cube of side 2 with the three golden rectangles that meet it at its
+// faces, and their pentagon edge is 2/φ.
+constexpr float D12_UNIT_EDGE_LENGTH = 2.0f * INVERSE_GOLDEN_RATIO;
+// A uniform regular dodecahedron of edge a: I = (39φ + 28) m a² / 150. Integrated from the solid
+// and checked against this closed form by scripts/dodecahedron-probe.mjs, agreeing to 5.6e-17.
+// Being Platonic it is the same about every axis, so DieShape's single scalar is exact for it
+// without a proportion having to be chosen for it as the D10's was (slice 0029).
+constexpr float DODECAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED = (39 * GOLDEN_RATIO + 28) / 150;
+
+// Vertex i + 10 is vertex i through the centre, so only half are listed: the cube's four corners
+// that are not each other's opposites, then one corner of each golden rectangle's two ends.
+constexpr Vec3 HALF_OF_D12_VERTICES[HALF_D12_VERTICES] = {
+    {1, 1, 1}, {1, 1, -1}, {1, -1, 1}, {-1, 1, 1},
+    {0, INVERSE_GOLDEN_RATIO, GOLDEN_RATIO}, {0, -INVERSE_GOLDEN_RATIO, GOLDEN_RATIO},
+    {INVERSE_GOLDEN_RATIO, GOLDEN_RATIO, 0}, {-INVERSE_GOLDEN_RATIO, GOLDEN_RATIO, 0},
+    {GOLDEN_RATIO, 0, INVERSE_GOLDEN_RATIO}, {GOLDEN_RATIO, 0, -INVERSE_GOLDEN_RATIO},
+};
+
+struct Pentagon {
+    uint8_t corners[PENTAGON_CORNERS];
+};
+
+// Face i + 6 is face i through the centre, so only half are listed: one of each pair of opposite
+// faces, wound outward.
+//
+// These indices were not written out by hand: a face list that is wrong still looks like a solid
+// until the inertia or a numeral comes out wrong. They came from running
+// scripts/dodecahedron-probe.mjs's hullFaces over the vertex order above, which is not the order
+// that probe's own dodecahedron() builds, so its indices are not interchangeable with these. What
+// makes the table trustworthy is not that provenance but test_geometry, which checks this solid
+// closes, winds outward, has one edge length and one inradius, and has an inertia matching the
+// body integrated about all three axes.
+constexpr Pentagon HALF_OF_D12_FACES[HALF_D12_FACES] = {
+    {{0, 8, 9, 1, 6}}, {{0, 4, 5, 2, 8}},
+    {{0, 6, 7, 3, 4}}, {{1, 15, 12, 7, 6}},
+    {{1, 9, 13, 14, 15}}, {{2, 17, 13, 9, 8}},
+};
+
+uint8_t oppositeD12Vertex(uint8_t vertex) { return (vertex + HALF_D12_VERTICES) % D12_VERTEX_COUNT; }
+
+DieFace pentagonFace(const Pentagon& pentagon, uint8_t numeral) {
+    DieFace face{};
+    for (uint8_t corner = 0; corner < PENTAGON_CORNERS; corner++) face.corners[corner] = pentagon.corners[corner];
+    face.cornerCount = PENTAGON_CORNERS;
+    face.numeral = numeral;
+    return face;
+}
+
 // ---- shared
 
 /** @brief Fill in what follows from the vertices and faces: normals and the bounding radius. */
@@ -269,6 +332,33 @@ DieShape makeD10(float circumradius) {
     }
     shape.inertiaPerMass = D10_INERTIA_PER_MASS_CIRCUMRADIUS_SQUARED * circumradius * circumradius;
     shape.holdS = D10_HOLD_S;
+    finish(shape);
+    return shape;
+}
+
+DieShape makeD12(float edgeLength) {
+    DieShape shape{};
+    const float scale = edgeLength / D12_UNIT_EDGE_LENGTH;
+    shape.vertexCount = D12_VERTEX_COUNT;
+    for (uint8_t i = 0; i < HALF_D12_VERTICES; i++) {
+        shape.vertices[i] = HALF_OF_D12_VERTICES[i] * scale;
+        shape.vertices[i + HALF_D12_VERTICES] = HALF_OF_D12_VERTICES[i] * -scale;
+    }
+    shape.faceCount = D12_FACE_COUNT;
+    for (uint8_t i = 0; i < HALF_D12_FACES; i++) {
+        const Pentagon& pentagon = HALF_OF_D12_FACES[i];
+        const uint8_t numeral = i + 1;
+        shape.faces[i] = pentagonFace(pentagon, numeral);
+        // Mirroring through the centre reverses a pentagon's winding, so its corners are laid
+        // down the other way round to keep the opposite face wound outward too.
+        Pentagon opposite{};
+        for (uint8_t corner = 0; corner < PENTAGON_CORNERS; corner++) {
+            opposite.corners[corner] = oppositeD12Vertex(pentagon.corners[PENTAGON_CORNERS - 1 - corner]);
+        }
+        shape.faces[i + HALF_D12_FACES] = pentagonFace(opposite, D12_OPPOSITE_NUMERAL_SUM - numeral);
+    }
+    shape.inertiaPerMass = DODECAHEDRON_INERTIA_PER_MASS_EDGE_SQUARED * edgeLength * edgeLength;
+    shape.holdS = D12_HOLD_S;
     finish(shape);
     return shape;
 }

@@ -7,7 +7,7 @@
 
 // In ascending order of faces: PRIMARY steps through them in this order (slice 0026), and the dice
 // still to come slot in where their face counts put them.
-enum class DieType : uint8_t { D6, D8, D10, D20 };
+enum class DieType : uint8_t { D6, D8, D10, D12, D20 };
 // Counted from the last type: a type added after D20 moves this to it.
 constexpr uint8_t DIE_TYPE_COUNT = static_cast<uint8_t>(DieType::D20) + 1;
 

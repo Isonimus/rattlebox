@@ -2,6 +2,11 @@
 
 // The whole memory, not just the dice and vertices in play: the step clears every entry it did not
 // use, so this record of the last step stays right when a roll changes the die type or count.
+//
+// Narrowing this to the die's own vertexCount is deliberately not done (ADR-0030). It was measured
+// when the D12 raised DIE_MAX_VERTICES from 12 to 20: it is worth under 2% of a frame, too small
+// for the measurement to resolve, and it would trade that for a reset hook and a way to report a
+// hit that did not happen.
 uint8_t HitFinder::find(const World& world, float impulses[MAX_HITS_PER_STEP]) {
     uint8_t count = 0;
     for (uint8_t die = 0; die < MAX_DICE; die++) {

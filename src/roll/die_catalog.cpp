@@ -16,13 +16,14 @@ namespace {
  *
  * The cost of that is the guard the compiler puts on a function-local static, and building the
  * shapes inside the first frame that names a die rather than before `setup` returns. Both are
- * well under a frame: three bodies of a few hundred float operations, against 16,667 us.
+ * well under a frame: five bodies of a few hundred float operations, against 16,667 us.
  */
 const DieKind* catalog() {
     static const DieKind KINDS[] = {
         {"D6", makeD6(D6_EDGE_MM)},
         {"D8", makeD8(D8_EDGE_MM)},
         {"D10", makeD10(D10_CIRCUMRADIUS_MM)},
+        {"D12", makeD12(D12_EDGE_MM)},
         {"D20", makeD20(D20_EDGE_MM)},
     };
     static_assert(sizeof(KINDS) / sizeof(KINDS[0]) == DIE_TYPE_COUNT, "one row per die type");

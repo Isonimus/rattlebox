@@ -13,9 +13,9 @@ import {
 const GRID = '[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.5 product_hold_s=0.15';
 // The product's per-die holds (src/geometry/die_shape.cpp, ADR-0028). Each die's run prints its
 // own grid line, so a fixture of a whole run has one per die and not one for all of them.
-const HOLD_S = { D6: 0.04, D8: 0.17, D10: 0.21, D20: 0.16 };
+const HOLD_S = { D6: 0.01, D8: 0.01, D10: 0.07, D12: 0.04, D20: 0.04 };
 const gridFor = (die) =>
-  `[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.5 product_hold_s=${HOLD_S[die]}`;
+  `[trace-grid] linear=1,5 angular=0.1,0.5 product_linear=5 product_angular=0.1 product_hold_s=${HOLD_S[die]}`;
 // A pause well inside what that die's hold outlasts four times over.
 const restsFor = (die) => `0.0000,0.0000,0.0000,${(HOLD_S[die] / 5).toFixed(4)}`;
 
@@ -154,7 +154,10 @@ test('an unsettled roll, an unfair tally, a missing tally and missing traces are
 function tracingAFalseRestOf(run, die, seconds) {
   const first = run.findIndex((entry) => entry.kind === 'trace' && entry.die === die);
   assert.ok(first >= 0, `no ${die} trace to replace`);
-  return run.map((entry, i) => (i === first ? parseProbeLine(trace(die, '0.0000', `0.0000,0.0100,0.0200,${seconds}`)) : entry));
+  // The grid is linear 1,5 outer and angular 0.1,0.5 inner, so the product's 5 mm/s and
+  // 0.1 rad/s is the third of the four. A looser threshold can only find a pause at least as
+  // long, so the fourth carries it too.
+  return run.map((entry, i) => (i === first ? parseProbeLine(trace(die, '0.0000', `0.0000,0.0000,${seconds},${seconds}`)) : entry));
 }
 
 /** @p run with @p die's grid line carrying @p holdS instead of the hold it ships with. */
@@ -164,13 +167,13 @@ function holding(run, die, holdS) {
   );
 }
 
-test('a false rest the hold does not outlast four times over fails: the D10 traced 0.0500 s, which 0.21 s covers and 0.17 s does not', () => {
-  const run = tracingAFalseRestOf(completeRun(), 'D10', '0.0500');
+test('a false rest the hold does not outlast four times over fails: the D10 traced 0.0167 s, which 0.07 s covers and 0.04 s does not', () => {
+  const run = tracingAFalseRestOf(completeRun(), 'D10', '0.0167');
   assert.deepEqual(checkRuns(run), []);
-  // 0.17 s is what every die held for before the hold became the die's own (ADR-0028), and it is
-  // exactly what the D10's trace refused: this is the failure that slice 0027 hit.
-  assert.deepEqual(checkRuns(holding(run, 'D10', 0.17)), [
-    'D10: a false rest of 0.05 s at 5 mm/s and 0.5 rad/s, which the 0.17 s hold does not outlast 4 times over',
+  // 0.04 s is what the D12 and the D20 hold for, and it is exactly what the D10's trace refuses:
+  // the hold is the die's own, and the longest pause differs between dice (ADR-0028, ADR-0031).
+  assert.deepEqual(checkRuns(holding(run, 'D10', 0.04)), [
+    'D10: a false rest of 0.0167 s at 5 mm/s and 0.1 rad/s, which the 0.04 s hold does not outlast 4 times over',
   ]);
 });
 
@@ -179,27 +182,27 @@ test('a die traced against two different holds is reported, not silently given t
   // run added later at a stale hold would otherwise overwrite the first and check nothing.
   const run = completeRun();
   const firstD10 = run.findIndex((entry) => entry.kind === 'trace' && entry.die === 'D10');
-  const stale = parseProbeLine(gridFor('D10').replace(`product_hold_s=${HOLD_S.D10}`, 'product_hold_s=0.17'));
+  const stale = parseProbeLine(gridFor('D10').replace(`product_hold_s=${HOLD_S.D10}`, 'product_hold_s=0.04'));
   const withTwo = [...run.slice(0, firstD10 + 1), stale, run[firstD10], ...run.slice(firstD10 + 1)];
-  assert.ok(checkRuns(withTwo).includes('D10: traced against two holds, 0.21 s and 0.17 s'));
+  assert.ok(checkRuns(withTwo).includes('D10: traced against two holds, 0.07 s and 0.04 s'));
 });
 
 test('each die is checked against its own hold, not the longest hold in the run', () => {
-  // 0.05 s is fine for the D10, whose hold is 0.21 s, and far too long for the D6, whose hold is
-  // 0.04 s. Before the hold was per die, one number covered both and this pause passed for both.
-  const run = tracingAFalseRestOf(completeRun(), 'D6', '0.0500');
+  // 0.0167 s is fine for the D10, whose hold is 0.07 s, and far too long for the D6, whose hold
+  // is 0.01 s. Before the hold was per die, one number covered both and this pause passed for both.
+  const run = tracingAFalseRestOf(completeRun(), 'D6', '0.0167');
   assert.deepEqual(checkRuns(run), [
-    'D6: a false rest of 0.05 s at 5 mm/s and 0.5 rad/s, which the 0.04 s hold does not outlast 4 times over',
+    'D6: a false rest of 0.0167 s at 5 mm/s and 0.1 rad/s, which the 0.01 s hold does not outlast 4 times over',
   ]);
-  assert.deepEqual(checkRuns(tracingAFalseRestOf(completeRun(), 'D10', '0.0500')), []);
+  assert.deepEqual(checkRuns(tracingAFalseRestOf(completeRun(), 'D10', '0.0167')), []);
 });
 
 test('a trace short of a false rest per grid point is named, not read as a pause of NaN that passes the hold', () => {
   const run = completeRun();
   const firstD8Trace = run.findIndex((entry) => entry.kind === 'trace' && entry.die === 'D8');
-  run[firstD8Trace] = parseProbeLine(trace('D8', '0.0000', '0.0000,0.0100,0.0200'));
+  run[firstD8Trace] = parseProbeLine(trace('D8', '0.0000', '0.0000,0.0100'));
   const failures = checkRuns(run);
-  assert.ok(failures.includes('D8 trace: 3 false rests for 4 grid points'));
+  assert.ok(failures.includes('D8 trace: 2 false rests for 4 grid points'));
   assert.ok(failures.some((failure) => /^D8: a false rest of NaN s/.test(failure)));
 });
 
@@ -208,7 +211,7 @@ test('a grid that leaves out the product\'s thresholds fails rather than checkin
   // Each die is named, because each die's run printed the grid its own hold was checked against.
   assert.deepEqual(
     checkRuns(run),
-    TRACES.map((t) => `${t.die}: the trace grid has no point at the product's 2 mm/s and 0.5 rad/s`),
+    TRACES.map((t) => `${t.die}: the trace grid has no point at the product's 2 mm/s and 0.1 rad/s`),
   );
 });
 
@@ -317,7 +320,7 @@ test('replays pool per die, gesture, kick and cut, keeping the worst take', () =
   assert.match(markdown, /\| D6 \| gentle \| none \| 81\.67% \(90\.00%\), 0\.000 \|/);
   assert.match(markdown, /\| D6 \| 1 \| spin=0\.1 \| 1 \| 3400 \| [\d.]+ \| [\d.]+ \| 16\.68% \(16\.67%\) \| 0\.988 \| 3 of 3400 \|/);
   // Every die the replays roll has its chance in the header, the D8 included (slice 0026).
-  assert.match(markdown, /Chance: D6 16\.67%, D8 12\.50%, D10 10\.00%, D20 5\.00%\./);
+  assert.match(markdown, /Chance: D6 16\.67%, D8 12\.50%, D10 10\.00%, D12 8\.33%, D20 5\.00%\./);
 });
 
 test('each take of a pooled replay rolls from its own seed', () => {

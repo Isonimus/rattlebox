@@ -12,7 +12,8 @@ constexpr float INVERSE_DIE_MASS = 1.0f / DIE_MASS;
 // A die can touch at most three of the tray's planes at once: the floor or the glass, one end
 // wall and one side wall, since the tray is wider, deeper and higher than any die. Fewer
 // vertices than all of them meet a plane at rest, but a fast die can pass a plane by a step's
-// travel, so only "every vertex" is a bound that cannot be broken. About 7.5 KB of static RAM.
+// travel, so only "every vertex" is a bound that cannot be broken. About 12.9 KB of static RAM
+// at DIE_MAX_VERTICES 20, which is 5.2 KB of what the D12 cost every die (ADR-0030).
 constexpr uint8_t MAX_PLANES_TOUCHED = 3;
 constexpr uint8_t MAX_TRAY_CONTACTS_PER_DIE = MAX_PLANES_TOUCHED * DIE_MAX_VERTICES;
 constexpr uint8_t MAX_DIE_PAIRS = MAX_DICE * (MAX_DICE - 1) / 2;

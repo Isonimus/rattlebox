@@ -14,11 +14,18 @@ decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
   D20. It reads 1 to 10, so the face a printed D10 marks 0 shows as 10 and three of them total 3 to
   30. It passed the same fairness test over 7,000 simulated results. The type order is now D6, D8,
   D10, D20.
+- **The D12.** A twelve-sided die, rolled one to three at a time like the others and as wide as
+  the D20. It passed the same fairness test over 9,000 simulated results. The type order is now
+  D6, D8, D10, D12, D20.
 - **Each die waits its own time before its result locks**, where every die used to wait the same
   0.15 s. How long a die can balance on an edge before it topples depends on its shape, so the
-  wait is now measured per die: 0.04 s for a D6, 0.16 s for a D20, 0.17 s for a D8 and 0.21 s for
-  a D10. A D6 settles 110 ms sooner than it did in v0.1.1 and a D20 10 ms sooner, and a new die
-  no longer slows down the dice already there.
+  wait is now measured per die: 0.01 s for a D6 and a D8, 0.04 s for a D12 and a D20, and 0.07 s
+  for a D10. A new die no longer slows down the dice already there.
+- **Every die settles noticeably faster.** A die creeping over an edge too slowly to see was
+  being counted as already stopped, so each die had to wait out that creep before showing its
+  result. The device now tells the difference, and the wait fell with it: a roll of three dice
+  takes about 0.33 s for D6 against 0.37 s in v0.1.1, 0.37 s for D8, 0.47 s for D10 and 0.48 s
+  for D20 against 0.67 s. A result still never changes once it is shown.
 
 ## v0.1.1 (2026-11-23)
 

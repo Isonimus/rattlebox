@@ -64,8 +64,11 @@ board is captured from shake to locked result.
   test before it ships (ADR-0002, ADR-0009). D4 is read from its top vertex rather than its top
   face, so it brings its own result-reading rule. The D10 shipped reading 1 to 10, where a
   printed D10's 0 face is its 10, which keeps the one numbering rule every die shares (slice
-  0027); d% will read a units die's 10 back as 0. D12's pentagonal faces raise the shape's corner
-  limit and its 20 vertices raise the vertex limit (`src/geometry/die_shape.h`).
+  0027); d% will read a units die's 10 back as 0. The D12 shipped raising the shape's corner limit
+  to 5 and its vertex limit to 20, which cost 8,448 bytes of static RAM on both boards and is the
+  last such raise, since a D4 and a d% both fit inside it (ADR-0030, slice 0029). Tracing the D12
+  also found the angular rest speed counting a slowly turning die as stopped, so every die's lock
+  wait fell when that was corrected (ADR-0031).
 - **Dice notation on the Cardputer**: `3d6+2`, `2d20kh1` (advantage), `4d6dl1`. Typing an
   expression is the one thing a keyboard device does better than a phone. The StickC
   cycles saved presets instead.

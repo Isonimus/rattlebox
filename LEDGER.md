@@ -22,6 +22,7 @@ open that corpus, so it skips qualified references (stele:ADR-0009).
 - [feature] A browser web flasher on GitHub Pages for the release images, so a board can be flashed without installing esptool (ADR-0021)
 - [audit] Install a release's `-app.bin` through M5Launcher on both boards: the app runs from another partition table's slot only because it reads no partition, NVS or filesystem, and no install has shown it yet (ADR-0025)
 - [audit] A release's `NOTICES.md` carries ESP-IDF's `COPYRIGHT.rst` component list, not each linked component's own license text; establish which components the firmware links and carry their texts (ADR-0021)
+- [bug] `scripts/fairness-probe.mjs` prints each die's final tilt gap but never fails on it, so `COCKED_TILT_RAD` is enforced only by somebody reading the summary; the D20's propped tilt is 0.6775° against the 0.5° threshold, and a die that fell below it would lock cocked dice with nothing going red (ADR-0031)
 - [deferred] On-device checks (`*-verify.mjs` device halves) need a board on the port and no hardware-in-the-loop runner exists, so CI runs only their parsing tests (ADR-0003)
 
 ## Resolved

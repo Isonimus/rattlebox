@@ -4,12 +4,15 @@
 #include <stdint.h>
 #include "vec3.h"
 
-// The largest dice built so far: the D20's and the D10's 12 vertices, the D20's 20 faces, and
-// the D6's squares and the D10's kites at four corners. A D12's pentagons raise the corner limit
-// when it comes, and its 20 vertices the vertex limit (v0.2, docs/roadmap.md).
-constexpr uint8_t DIE_MAX_VERTICES = 12;
+// One set of limits sized for the largest die the product builds, raised when a new die needs
+// more (ADR-0030): the D12's 20 vertices and pentagons, and the D20's 20 faces. They are not
+// only a ceiling. They size ContactMemory, world.cpp's contact array, HitFinder's record and
+// DieShape itself, so raising them costs every die: measured at 8,448 bytes of static RAM on
+// both boards and under 2% of a frame, which is what ADR-0030 weighed. The D4 and the d% still
+// to come both fit inside these (docs/roadmap.md).
+constexpr uint8_t DIE_MAX_VERTICES = 20;
 constexpr uint8_t DIE_MAX_FACES = 20;
-constexpr uint8_t FACE_MAX_CORNERS = 4;
+constexpr uint8_t FACE_MAX_CORNERS = 5;
 
 /** @brief One flat face: a convex polygon, its corners counter-clockwise seen from outside the die. */
 struct DieFace {
@@ -59,6 +62,7 @@ DieShape makeD6(float edgeLength);
 DieShape makeD8(float edgeLength);
 /** @brief A pentagonal trapezohedron. Sized by circumradius: a kite has no single edge length. */
 DieShape makeD10(float circumradius);
+DieShape makeD12(float edgeLength);
 DieShape makeD20(float edgeLength);
 
 /**
