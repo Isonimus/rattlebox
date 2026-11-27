@@ -22,22 +22,37 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
-import { ALPHA, chiSquarePValue, chiSquareStatistic, FACES } from './fairness-probe.mjs';
+import { ALPHA, BODIES_PER_DIE, BODY_FACES, chiSquarePValue, chiSquareStatistic } from './fairness-probe.mjs';
 import { checkBoot, checkNoErrors, parseLine } from './skeleton-verify.mjs';
 
 export const ENVS = ['cardputer', 'm5stickc-plus2'];
 // Three dice, the most a roll throws, so every die-to-die contact the physics has is exercised.
+// A d% is two bodies, so only one of it fits and it rolls alone (ADR-0034).
 export const DICE_PER_ROLL = 3;
 // Enough that each face expects at least 5 results, where chi-square's approximation holds:
 // 120 D4 results expect 30 a face, 120 D6 results 20, 120 D8 results 15, 120 D10 results 12,
-// 120 D12 results 10 and 180 D20 results 9.
+// 120 D12 results 10, 180 D20 results 9 and 80 D100 body results 8. The d% is checked over its
+// bodies' ten faces and not over its hundred outcomes: 40 rolls expect 0.4 results an outcome,
+// which chi-square cannot read at all. Its hundred outcomes are proven on the host instead, at
+// 163,000 rolls (slice 0035); what the device has to show is that every roll locks and that the
+// band reads as the dice on the tray do.
 // Rolled in this order, which is the product's, so each type is one 'T' from the last.
-export const ROLLS = { D4: 40, D6: 40, D8: 40, D10: 40, D12: 40, D20: 60 };
-// The order PRIMARY steps the type in (src/roll/die_catalog.h, slices 0026 and 0032).
-export const TYPE_ORDER = ['D4', 'D6', 'D8', 'D10', 'D12', 'D20'];
+export const ROLLS = { D4: 40, D6: 40, D8: 40, D10: 40, D12: 40, D20: 60, D100: 40 };
+// The order PRIMARY steps the type in (src/roll/die_catalog.h, slices 0026, 0032 and 0035).
+export const TYPE_ORDER = ['D4', 'D6', 'D8', 'D10', 'D12', 'D20', 'D100'];
 // The product's choice at boot (src/roll/dice_choice.h).
 export const BOOT_CHOICE = { type: 'D20', count: 1 };
 const MAX_DICE = 3;
+
+/** The most dice of `type` a roll may throw: MAX_DICE bodies, `BODIES_PER_DIE` at a time. */
+export function maxDiceOf(type) {
+  return Math.floor(MAX_DICE / BODIES_PER_DIE[type]);
+}
+
+/** How many dice of `type` this check rolls: three, or as many as fit. */
+export function dicePerRoll(type) {
+  return Math.min(DICE_PER_ROLL, maxDiceOf(type));
+}
 // The product's IMU rate (src/main.cpp, ADR-0005). The chips' clocks were measured up to 1.1% off
 // it, so samples coming in under 98% of it were lost between the loop's reads. The rate is pooled
 // over a run's rolls: a sample's timestamp is its read time, late by up to a few milliseconds, which
@@ -72,7 +87,15 @@ export function parseRollLine(line) {
   if ((match = LOCKED.exec(line))) {
     const [results, shown] = [numerals(match[3]), numerals(match[4])];
     const count = Number(match[2]);
-    if (results.length !== count || shown.length !== count) throw new Error(`roll of ${count} dice with other numerals: ${line}`);
+    // The count is dice and the numerals are bodies, which differ for a d%: one die, two numerals
+    // (ADR-0034). A type this side does not know is a firmware ahead of this script, not a roll to
+    // measure by guesswork.
+    const bodies = BODIES_PER_DIE[match[1]];
+    if (bodies === undefined) throw new Error(`no die type ${match[1]}: ${line}`);
+    const expected = count * bodies;
+    if (results.length !== expected || shown.length !== expected) {
+      throw new Error(`roll of ${count} ${match[1]} wants ${expected} numerals: ${line}`);
+    }
     const [seconds, nudges, detections] = match.slice(5).map(Number);
     return { kind: 'locked', type: match[1], count, results, shown, seconds, nudges, detections };
   }
@@ -117,15 +140,25 @@ export function commandsToReach(current, target) {
   const from = TYPE_ORDER.indexOf(current.type);
   const to = TYPE_ORDER.indexOf(target.type);
   if (from === -1 || to === -1) throw new Error(`no die type ${from === -1 ? current.type : target.type}`);
+  const most = maxDiceOf(target.type);
+  if (target.count < 1 || target.count > most) throw new Error(`${target.type} does not roll ${target.count} dice`);
   const commands = [];
-  for (let type = from; type !== to; type = (type + 1) % TYPE_ORDER.length) commands.push('T');
-  for (let count = current.count; count !== target.count; count = (count % MAX_DICE) + 1) commands.push('C');
+  let type = from;
+  let count = current.count;
+  while (type !== to) {
+    type = (type + 1) % TYPE_ORDER.length;
+    commands.push('T');
+    // Stepping onto a type that holds fewer dice brings the count down with it (ADR-0034), so the
+    // device's count and this model of it stay in step without a command being sent.
+    count = Math.min(count, maxDiceOf(TYPE_ORDER[type]));
+  }
+  for (; count !== target.count; count = (count % most) + 1) commands.push('C');
   return commands;
 }
 
 /** Each die type's measured rolls added up: `rolls` holds `{locked, frame}` pairs. */
 export function summarizeType(type, rolls) {
-  const counts = new Array(FACES[type]).fill(0);
+  const counts = new Array(BODY_FACES[type]).fill(0);
   let knockedOver = 0;
   for (const { locked } of rolls) {
     locked.results.forEach((numeral, die) => {
@@ -141,7 +174,7 @@ export function summarizeType(type, rolls) {
     results: counts.reduce((sum, count) => sum + count, 0),
     counts,
     chiSquare: statistic,
-    pValue: chiSquarePValue(statistic, FACES[type] - 1),
+    pValue: chiSquarePValue(statistic, BODY_FACES[type] - 1),
     knockedOver,
     meanSeconds: rolls.reduce((sum, { locked }) => sum + locked.seconds, 0) / rolls.length,
     longestSeconds: Math.max(...rolls.map(({ locked }) => locked.seconds)),
@@ -181,7 +214,7 @@ export function summaryMarkdown(env, types) {
   const lines = [
     `# Roll verify: ${env}`,
     '',
-    `${DICE_PER_ROLL} dice a roll, launched from rest through the serial port.`,
+    `${DICE_PER_ROLL} dice a roll where they fit, launched from rest through the serial port. A d% is two bodies, so one of it rolls alone; its chi-square is over its bodies' ten faces, not its hundred outcomes (slice 0035).`,
     '',
     '| Die | Rolls | Results | Chi-square | p | Knocked over after locking | Seconds (mean / longest) | Nudges |',
     '|---|---|---|---|---|---|---|---|',
@@ -322,11 +355,11 @@ export function capture(port, outDir) {
   if (result.status !== 0) throw new Error(`screen capture: ${result.stderr.trim()}`);
 }
 
-/** Roll `type` three at a time `ROLLS[type]` times from `choice`, and return the rolls and the choice left. */
+/** Roll `type` as many at a time as fit, `ROLLS[type]` times from `choice`, and return the rolls and the choice left. */
 async function rollType(session, choice, type) {
-  const target = { type, count: DICE_PER_ROLL };
+  const target = { type, count: dicePerRoll(type) };
   for (const command of commandsToReach(choice, target)) await session.roll(command);
-  console.log(`  rolling ${ROLLS[type]} times ${DICE_PER_ROLL} ${type}...`);
+  console.log(`  rolling ${ROLLS[type]} times ${target.count} ${type}...`);
   const rolls = [];
   for (let i = 0; i < ROLLS[type]; i++) rolls.push(await session.roll('R'));
   return { rolls, choice: target };

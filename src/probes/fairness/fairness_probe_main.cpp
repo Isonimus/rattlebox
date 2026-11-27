@@ -113,10 +113,12 @@ float longestFalseRestS(const TraceRecorder& trace, uint32_t lastChange, float l
     return longest * PHYSICS_STEP_S;
 }
 
-bool parseShape(const char* name, DieShape& shape) {
+// The whole catalog row, not just the solid: a d% is a D10 twice over, and only the row says so
+// or says what its numerals mean (ADR-0034).
+bool parseKind(const char* name, const DieKind*& kind) {
     DieType type;
     if (!parseDieType(name, type)) return false;
-    shape = dieKind(type).shape;
+    kind = &dieKind(type);
     return true;
 }
 
@@ -226,9 +228,9 @@ int runTrace(const char* name, const DieShape& shape, unsigned long rolls, unsig
     return 0;
 }
 
-int runTally(const char* name, const DieShape& shape, uint8_t dice, unsigned long rolls, unsigned long seed) {
+int runTally(const DieKind& kind, uint8_t bodies, unsigned long rolls, unsigned long seed) {
     SeededSource source(seed);
-    unsigned long counts[DIE_MAX_FACES + 1] = {};
+    unsigned long counts[MAX_DIE_OUTCOMES + 1] = {};
     unsigned long nudges = 0;
     unsigned long mostNudges = 0;
     unsigned long unsettled = 0;
@@ -238,31 +240,44 @@ int runTally(const char* name, const DieShape& shape, uint8_t dice, unsigned lon
     float longestS = 0;
     const clock_t start = clock();
     for (unsigned long roll = 0; roll < rolls; roll++) {
-        const RollOutcome outcome = simulateRoll(shape, dice, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S, nullptr);
+        const RollOutcome outcome = simulateRoll(kind.shape, bodies, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S, nullptr);
         if (!outcome.settled) unsettled++;
         nudges += outcome.nudges;
         if (outcome.nudges > mostNudges) mostNudges = outcome.nudges;
         totalS += outcome.seconds;
         longestS = fmaxf(longestS, outcome.seconds);
-        for (uint8_t die = 0; die < dice; die++) {
-            const DieResult& result = outcome.results[die];
-            if (result.state != DieState::Locked) continue;
-            counts[result.numeral]++;
-            if (result.numeral == outcome.launchNumerals[die]) onLaunchFace++;
-            if (result.numeral != outcome.shownNumerals[die]) knockedOver++;
+        // One result per die, which for a d% is one percentile from its two bodies (ADR-0034).
+        for (uint8_t body = 0; body + kind.bodiesPerRoll <= bodies; body += kind.bodiesPerRoll) {
+            uint8_t locked[MAX_BODIES_PER_DIE];
+            uint8_t launched[MAX_BODIES_PER_DIE];
+            uint8_t shown[MAX_BODIES_PER_DIE];
+            bool allLocked = true;
+            for (uint8_t part = 0; part < kind.bodiesPerRoll; part++) {
+                const DieResult& result = outcome.results[body + part];
+                // A die is a result only once every body of it has locked: half a d% is nothing.
+                if (result.state != DieState::Locked) allLocked = false;
+                locked[part] = result.numeral;
+                launched[part] = outcome.launchNumerals[body + part];
+                shown[part] = outcome.shownNumerals[body + part];
+            }
+            if (!allLocked) continue;
+            const unsigned value = dieValue(kind, locked);
+            counts[value]++;
+            if (value == dieValue(kind, launched)) onLaunchFace++;
+            if (value != dieValue(kind, shown)) knockedOver++;
         }
     }
-    printf("[tally] die=%s dice=%u rolls=%lu seed=%lu counts=", name, static_cast<unsigned>(dice), rolls, seed);
-    for (uint8_t numeral = 1; numeral <= shape.faceCount; numeral++) printf(numeral > 1 ? ",%lu" : "%lu", counts[numeral]);
+    printf("[tally] die=%s dice=%u rolls=%lu seed=%lu counts=", kind.name, static_cast<unsigned>(bodies), rolls, seed);
+    for (unsigned value = 1; value <= dieOutcomes(kind); value++) printf(value > 1 ? ",%lu" : "%lu", counts[value]);
     printf(" nudges=%lu most_nudges_in_a_roll=%lu unsettled=%lu on_launch_face=%lu knocked_over=%lu "
            "mean_roll_s=%.4f longest_roll_s=%.4f runtime_s=%.3f\n",
            nudges, mostNudges, unsettled, onLaunchFace, knockedOver, totalS / rolls, longestS, secondsSince(start));
     return 0;
 }
 
-void printShakenTally(const ShakenTally& tally, uint8_t faceCount, clock_t start) {
+void printShakenTally(const ShakenTally& tally, unsigned outcomes, clock_t start) {
     printf("counts=");
-    for (uint8_t numeral = 1; numeral <= faceCount; numeral++) printf(numeral > 1 ? ",%lu" : "%lu", tally.counts[numeral]);
+    for (unsigned value = 1; value <= outcomes; value++) printf(value > 1 ? ",%lu" : "%lu", tally.counts[value]);
     const unsigned long detected = tally.rolls - tally.undetected;
     printf(" rolls=%lu results=%lu same_as_before=%lu undetected=%lu redetected=%lu unsettled=%lu nudges=%lu "
            "knocked_over=%lu deepest_outside_mm=%.4f fastest_mm_per_s=%.1f mean_roll_s=%.4f longest_roll_s=%.4f "
@@ -272,8 +287,8 @@ void printShakenTally(const ShakenTally& tally, uint8_t faceCount, clock_t start
            detected ? tally.totalS / detected : 0.0, tally.longestS, secondsSince(start));
 }
 
-int runReplay(const char* name, const DieShape& shape, uint8_t dice, unsigned long trials, unsigned long seed, KickPlan kick, const char* kickText,
-              const char* extraText, const char* path) {
+int runReplay(const DieKind& kind, uint8_t bodies, unsigned long trials, unsigned long seed, KickPlan kick,
+              const char* kickText, const char* extraText, const char* path) {
     const ShakeRecording recording = loadRecording(path);
     float extraS = durationS(recording);
     if (strcmp(extraText, "full") != 0 && !parseSeconds(extraText, extraS)) return usage();
@@ -283,64 +298,76 @@ int runReplay(const char* name, const DieShape& shape, uint8_t dice, unsigned lo
     const clock_t start = clock();
     for (unsigned long trial = 0; trial < trials; trial++) {
         World world{};
-        if (!restingWorld(world, shape, dice, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S)) {
+        if (!restingWorld(world, kind.shape, bodies, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S)) {
             unsettledStarts++;
             continue;
         }
-        addShakenRoll(tally, simulateShakenRoll(world, recording, extraS, kick, source, PRODUCT_REST_THRESHOLDS,
-                                                TALLY_TIME_LIMIT_S));
+        addShakenRoll(tally, kind, simulateShakenRoll(world, recording, extraS, kick, source, PRODUCT_REST_THRESHOLDS,
+                                                      TALLY_TIME_LIMIT_S));
     }
-    printf("[replay] file=%s die=%s dice=%u kick=%s extra_s=%.3f seed=%lu unsettled_starts=%lu ", path, name,
-           static_cast<unsigned>(dice), kickText, extraS, seed, unsettledStarts);
-    printShakenTally(tally, shape.faceCount, start);
+    printf("[replay] file=%s die=%s dice=%u kick=%s extra_s=%.3f seed=%lu unsettled_starts=%lu ", path, kind.name,
+           static_cast<unsigned>(bodies), kickText, extraS, seed, unsettledStarts);
+    printShakenTally(tally, dieOutcomes(kind), start);
     return 0;
 }
 
-int runChain(const char* name, const DieShape& shape, uint8_t dice, unsigned long rolls, unsigned long seed, KickPlan kick, const char* kickText,
-             char** paths, int pathCount) {
+int runChain(const DieKind& kind, uint8_t bodies, unsigned long rolls, unsigned long seed, KickPlan kick,
+             const char* kickText, char** paths, int pathCount) {
     std::vector<ShakeRecording> recordings;
     for (int i = 0; i < pathCount; i++) recordings.push_back(loadRecording(paths[i]));
     SeededSource source(seed);
     World world{};
-    if (!restingWorld(world, shape, dice, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S)) {
+    if (!restingWorld(world, kind.shape, bodies, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S)) {
         fprintf(stderr, "the first roll never came to rest\n");
         return EXIT_FAILURE;
     }
     const clock_t start = clock();
-    const ShakenTally tally = chainRolls(world, recordings, rolls, kick, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S);
-    printf("[chain] die=%s dice=%u kick=%s seed=%lu recordings=%d ", name, static_cast<unsigned>(dice),
+    const ShakenTally tally =
+        chainRolls(world, kind, recordings, rolls, kick, source, PRODUCT_REST_THRESHOLDS, TALLY_TIME_LIMIT_S);
+    printf("[chain] die=%s dice=%u kick=%s seed=%lu recordings=%d ", kind.name, static_cast<unsigned>(bodies),
            kickText, seed, pathCount);
-    printShakenTally(tally, shape.faceCount, start);
+    printShakenTally(tally, dieOutcomes(kind), start);
     return 0;
 }
 
 } // namespace
 
+/**
+ * @brief Whether @p bodies bodies make whole dice of @p kind, and fit the tray.
+ *
+ * A count that leaves a body over would roll half a d%, whose result is nothing at all, so it is
+ * refused at the argument rather than tallied as a die (ADR-0034).
+ */
+bool wholeDice(const DieKind& kind, unsigned long bodies) {
+    return bodies > 0 && bodies <= MAX_DICE && bodies % kind.bodiesPerRoll == 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) return usage();
-    DieShape shape{};
+    const DieKind* kind = nullptr;
     unsigned long rolls = 0;
     unsigned long seed = 0;
     if (strcmp(argv[1], "trace") == 0 && argc == 5) {
-        if (!parseShape(argv[2], shape) || !parseCount(argv[3], rolls) || !parseCount(argv[4], seed)) return usage();
-        return runTrace(argv[2], shape, rolls, seed);
+        if (!parseKind(argv[2], kind) || !parseCount(argv[3], rolls) || !parseCount(argv[4], seed)) return usage();
+        return runTrace(kind->name, kind->shape, rolls, seed);
     }
-    unsigned long dice = 0;
+    unsigned long bodies = 0;
     if (strcmp(argv[1], "tally") == 0 && argc == 6) {
-        if (!parseShape(argv[2], shape) || !parseCount(argv[3], dice) || dice > MAX_DICE ||
+        if (!parseKind(argv[2], kind) || !parseCount(argv[3], bodies) || !wholeDice(*kind, bodies) ||
             !parseCount(argv[4], rolls) || !parseCount(argv[5], seed)) {
             return usage();
         }
-        return runTally(argv[2], shape, static_cast<uint8_t>(dice), rolls, seed);
+        return runTally(*kind, static_cast<uint8_t>(bodies), rolls, seed);
     }
     KickPlan kick{ShakeKick::None, 0};
-    const bool shakenHead = argc >= 8 && parseShape(argv[2], shape) && parseCount(argv[3], dice) && dice <= MAX_DICE &&
-                            parseCount(argv[4], rolls) && parseCount(argv[5], seed) && parseKick(argv[6], kick);
+    const bool shakenHead = argc >= 8 && parseKind(argv[2], kind) && parseCount(argv[3], bodies) &&
+                            wholeDice(*kind, bodies) && parseCount(argv[4], rolls) && parseCount(argv[5], seed) &&
+                            parseKick(argv[6], kick);
     if (strcmp(argv[1], "replay") == 0 && argc == 9 && shakenHead) {
-        return runReplay(argv[2], shape, static_cast<uint8_t>(dice), rolls, seed, kick, argv[6], argv[7], argv[8]);
+        return runReplay(*kind, static_cast<uint8_t>(bodies), rolls, seed, kick, argv[6], argv[7], argv[8]);
     }
     if (strcmp(argv[1], "chain") == 0 && shakenHead) {
-        return runChain(argv[2], shape, static_cast<uint8_t>(dice), rolls, seed, kick, argv[6], argv + 7, argc - 7);
+        return runChain(*kind, static_cast<uint8_t>(bodies), rolls, seed, kick, argv[6], argv + 7, argc - 7);
     }
     return usage();
 }

@@ -36,12 +36,13 @@ other; tilt it and they slide; let them settle and the face each one lies on is 
 
 <table>
   <tr>
-    <td width="16%" align="center"><img src="docs/images/cardputer-three-d20.png" alt="Three D20 locked on the Cardputer ADV, results 18, 3 and 13 totalling 34" width="260"><br><sub><b>Three D20</b> on the Cardputer ADV</sub></td>
-    <td width="16%" align="center"><img src="docs/images/cardputer-three-d6.png" alt="Three D6 locked on the Cardputer ADV, results 2, 4 and 4 totalling 10" width="260"><br><sub><b>Three D6</b> on the Cardputer ADV</sub></td>
-    <td width="16%" align="center"><img src="docs/images/stickc-three-d8.png" alt="Three D8 locked on the M5StickC Plus 2, results 6, 5 and 5 totalling 16" width="260"><br><sub><b>Three D8</b> on the M5StickC Plus 2</sub></td>
-    <td width="16%" align="center"><img src="docs/images/cardputer-three-d10.png" alt="Three D10 locked on the Cardputer ADV, results 10, 4 and 5 totalling 19" width="260"><br><sub><b>Three D10</b> on the Cardputer ADV</sub></td>
-    <td width="16%" align="center"><img src="docs/images/cardputer-three-d12.png" alt="Three D12 locked on the Cardputer ADV, results 10, 4 and 2 totalling 16" width="260"><br><sub><b>Three D12</b> on the Cardputer ADV</sub></td>
-    <td width="16%" align="center"><img src="docs/images/cardputer-three-d4.png" alt="Three D4 locked on the Cardputer ADV, each showing its result on all three visible faces, results 1, 2 and 3 totalling 6" width="260"><br><sub><b>Three D4</b> on the Cardputer ADV</sub></td>
+    <td width="14%" align="center"><img src="docs/images/cardputer-three-d20.png" alt="Three D20 locked on the Cardputer ADV, results 18, 3 and 13 totalling 34" width="260"><br><sub><b>Three D20</b> on the Cardputer ADV</sub></td>
+    <td width="14%" align="center"><img src="docs/images/cardputer-three-d6.png" alt="Three D6 locked on the Cardputer ADV, results 2, 4 and 4 totalling 10" width="260"><br><sub><b>Three D6</b> on the Cardputer ADV</sub></td>
+    <td width="14%" align="center"><img src="docs/images/stickc-three-d8.png" alt="Three D8 locked on the M5StickC Plus 2, results 6, 5 and 5 totalling 16" width="260"><br><sub><b>Three D8</b> on the M5StickC Plus 2</sub></td>
+    <td width="14%" align="center"><img src="docs/images/cardputer-three-d10.png" alt="Three D10 locked on the Cardputer ADV, results 10, 4 and 5 totalling 19" width="260"><br><sub><b>Three D10</b> on the Cardputer ADV</sub></td>
+    <td width="14%" align="center"><img src="docs/images/cardputer-three-d12.png" alt="Three D12 locked on the Cardputer ADV, results 10, 4 and 2 totalling 16" width="260"><br><sub><b>Three D12</b> on the Cardputer ADV</sub></td>
+    <td width="14%" align="center"><img src="docs/images/cardputer-three-d4.png" alt="Three D4 locked on the Cardputer ADV, each showing its result on all three visible faces, results 1, 2 and 3 totalling 6" width="260"><br><sub><b>Three D4</b> on the Cardputer ADV</sub></td>
+    <td width="14%" align="center"><img src="docs/images/cardputer-d100.png" alt="One percentile roll locked on the Cardputer ADV, the tens die showing 90 and the units die 2, read together as 92" width="260"><br><sub><b>One d%</b> on the Cardputer ADV</sub></td>
   </tr>
 </table>
 
@@ -72,18 +73,23 @@ other; tilt it and they slide; let them settle and the face each one lies on is 
 - **Sound.** Every hit in the physics clacks: filtered noise through the Cardputer's speaker, a
   click on the StickC's buzzer. A shake's rattle is those same hits.
 
-D4, D6, D8, D10, D12 and D20 are available, one to three dice of a type per roll. The device boots
-with one D20. The D10 reads 1 to 10, so its 10 is the face a printed D10 marks 0. The D4 is read
-like a printed one: it lands on a face, and the number at the raised corner, shown on all three
-faces you can see, is its result.
+D4, D6, D8, D10, D12, D20 and d% are available, one to three dice of a type per roll. The device
+boots with one D20. The D10 reads 1 to 10, so its 10 is the face a printed D10 marks 0. The D4 is
+read like a printed one: it lands on a face, and the number at the raised corner, shown on all
+three faces you can see, is its result.
+
+The d% is two dice read as one. It shows as `D100`: one die carries 00 to 90 and the other 0 to 9,
+and together they are 1 to 100, where 00 with 0 is 100. Because it is two dice, only one d% fits
+the tray, so the count buttons stay at one while it is chosen and the strip reads like
+`D100 70 3 = 73`.
 
 ## Controls
 
 | What it does | Cardputer ADV | M5StickC Plus 2 |
 |---|---|---|
 | Roll | Shake the device | Shake the device |
-| Next die type: D4, D6, D8, D10, D12, D20, then D4 again | `Enter` | Button A (front) |
-| Cycle one, two, three dice | `Backspace` | Button B (side) |
+| Next die type: D4, D6, D8, D10, D12, D20, D100, then D4 again | `Enter` | Button A (front) |
+| Cycle one, two, three dice (the d% stays at one) | `Backspace` | Button B (side) |
 | One die more / one fewer | `;` (up) / `.` (down) | |
 
 Changing the dice throws the new set at once.
@@ -154,8 +160,9 @@ cppcheck, CodeQL, and the decision-record checks. Pushing a `v*` tag builds and 
 
 ## Roadmap
 
-v0.1 is the dice tray described above. v0.2 adds the D8, the D10, the D12 and the D4, then percentile dice, dice
-notation typed on the Cardputer (`3d6+2`, `2d20kh1`), presets, roll history and a hidden roll. The
+v0.1 is the dice tray described above. v0.2 adds the D8, the D10, the D12, the D4 and percentile
+dice, then dice notation typed on the Cardputer (`3d6+2`, `2d20kh1`), presets, roll history and a
+hidden roll. The
 plan, and what is deliberately not planned, is in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Contributing

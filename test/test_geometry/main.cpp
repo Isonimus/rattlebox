@@ -1,6 +1,8 @@
 #include <unity.h>
 #include "../../src/geometry/rotation.h"
 #include "../../src/geometry/rotation.cpp"
+#include "../../src/geometry/die_numbering.h"
+#include "../../src/geometry/die_numbering.cpp"
 #include "../../src/geometry/die_shape.h"
 #include "../../src/geometry/die_shape.cpp"
 #include "../../src/roll/die_catalog.h"

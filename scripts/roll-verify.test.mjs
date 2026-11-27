@@ -15,8 +15,9 @@ import {
   summarizeType,
   summaryMarkdown,
   TYPE_ORDER,
+  dicePerRoll,
 } from './roll-verify.mjs';
-import { FACES } from './fairness-probe.mjs';
+import { BODIES_PER_DIE, BODY_FACES } from './fairness-probe.mjs';
 
 const BOOT_LINES = [
   '[boot] power OK: HOLD latch on G4',
@@ -35,9 +36,12 @@ const frame = (frames = 30) => ({
 /** `rolls` rolls of three dice of `faces` faces, each face in turn, so the counts are as even as they can be. */
 function evenRolls(type, faces, rolls) {
   const result = [];
+  // One entry per body, which is three for the single-body dice and two for one d% (ADR-0034).
+  const dice = dicePerRoll(type);
+  const bodies = dice * BODIES_PER_DIE[type];
   for (let roll = 0; roll < rolls; roll++) {
-    const results = [0, 1, 2].map((die) => ((roll * 3 + die) % faces) + 1);
-    result.push({ locked: { kind: 'locked', type, count: 3, results, shown: results, seconds: 0.5, nudges: 0, detections: 0 }, frame: frame() });
+    const results = Array.from({ length: bodies }, (unused, die) => ((roll * bodies + die) % faces) + 1);
+    result.push({ locked: { kind: 'locked', type, count: dice, results, shown: results, seconds: 0.5, nudges: 0, detections: 0 }, frame: frame() });
   }
   return result;
 }
@@ -49,7 +53,7 @@ function evenRolls(type, faces, rolls) {
  * leave these checking a run that is missing one.
  */
 function everyTypeRolledEvenly(replaced = {}) {
-  return TYPE_ORDER.map((type) => summarizeType(type, replaced[type] ?? evenRolls(type, FACES[type], ROLLS[type])));
+  return TYPE_ORDER.map((type) => summarizeType(type, replaced[type] ?? evenRolls(type, BODY_FACES[type], ROLLS[type])));
 }
 
 test('the product\'s roll and frame lines parse', () => {
@@ -102,7 +106,18 @@ test('an IMU rate under 98% of 100 Hz fails, and one inside the chips\' clock er
 });
 
 test('a locked line whose numerals do not match its die count is refused', () => {
-  assert.throws(() => parseRollLine('[roll] locked D6 x3 results=2,5 shown=2,5,6 seconds=0.4 nudges=0 detections=0'), /3 dice/);
+  assert.throws(() => parseRollLine('[roll] locked D6 x3 results=2,5 shown=2,5,6 seconds=0.4 nudges=0 detections=0'), /wants 3 numerals/);
+});
+
+// Slice 0035: the count is dice and the numerals are bodies, and for a d% those differ. A log that
+// said x2 here and x1 on the launch line would read as a roll that changed size on the way.
+test('a percentile line counts one die and two numerals', () => {
+  assert.deepEqual(parseRollLine('[roll] locked D100 x1 results=8,4 shown=8,4 seconds=0.5 nudges=0 detections=1'), {
+    kind: 'locked', type: 'D100', count: 1, results: [8, 4], shown: [8, 4], seconds: 0.5, nudges: 0, detections: 1,
+  });
+  // One numeral for a d% is half a roll, and three is a body with no die to belong to.
+  assert.throws(() => parseRollLine('[roll] locked D100 x1 results=8 shown=8 seconds=0.5 nudges=0 detections=1'), /wants 2 numerals/);
+  assert.throws(() => parseRollLine('[roll] locked D100 x1 results=8,4,1 shown=8,4,1 seconds=0.5 nudges=0 detections=1'), /wants 2 numerals/);
 });
 
 test('a roll that never locked is an error line', () => {
@@ -110,15 +125,24 @@ test('a roll that never locked is an error line', () => {
 });
 
 test('the commands to reach a choice step the type forward through the cycle and cycle the count forward', () => {
-  // The cycle is D4, D6, D8, D10, D12, D20 and wraps, so a step back is five steps forward.
-  assert.deepEqual(commandsToReach({ type: 'D20', count: 1 }, { type: 'D4', count: 3 }), ['T', 'C', 'C']);
-  assert.deepEqual(commandsToReach({ type: 'D20', count: 1 }, { type: 'D6', count: 3 }), ['T', 'T', 'C', 'C']);
+  // The cycle is D4, D6, D8, D10, D12, D20, D100 and wraps, so a step back is six steps forward.
+  assert.deepEqual(commandsToReach({ type: 'D20', count: 1 }, { type: 'D4', count: 3 }), ['T', 'T', 'C', 'C']);
+  assert.deepEqual(commandsToReach({ type: 'D20', count: 1 }, { type: 'D6', count: 3 }), ['T', 'T', 'T', 'C', 'C']);
   assert.deepEqual(commandsToReach({ type: 'D4', count: 3 }, { type: 'D6', count: 3 }), ['T']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D8', count: 3 }), ['T']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D10', count: 3 }), ['T', 'T']);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D20', count: 3 }), ['T', 'T', 'T', 'T']);
-  assert.deepEqual(commandsToReach({ type: 'D10', count: 3 }, { type: 'D6', count: 3 }), ['T', 'T', 'T', 'T']);
-  assert.deepEqual(commandsToReach({ type: 'D20', count: 3 }, { type: 'D8', count: 3 }), ['T', 'T', 'T']);
+  // Wrapping round passes through the d%, which holds one die, so the count has to be cycled back
+  // up afterwards: the clamp is the device's and the model has to spend the commands it costs.
+  assert.deepEqual(commandsToReach({ type: 'D10', count: 3 }, { type: 'D6', count: 3 }), ['T', 'T', 'T', 'T', 'T', 'C', 'C']);
+  assert.deepEqual(commandsToReach({ type: 'D20', count: 3 }, { type: 'D8', count: 3 }), ['T', 'T', 'T', 'T', 'C', 'C']);
+  // Stepping onto the d% brings the count down to its one die with no command of its own, so no
+  // 'C' is sent here and none is needed to come back off it either (slice 0035).
+  assert.deepEqual(commandsToReach({ type: 'D20', count: 3 }, { type: 'D100', count: 1 }), ['T']);
+  assert.deepEqual(commandsToReach({ type: 'D12', count: 3 }, { type: 'D100', count: 1 }), ['T', 'T']);
+  assert.deepEqual(commandsToReach({ type: 'D100', count: 1 }, { type: 'D4', count: 3 }), ['T', 'C', 'C']);
+  // Asking for more d% than fit would cycle the count for ever, because SECONDARY holds it at 1.
+  assert.throws(() => commandsToReach({ type: 'D100', count: 1 }, { type: 'D100', count: 2 }), /D100 does not roll 2 dice/);
   // A name no die carries, so this keeps meaning "unknown type" as dice are added.
   assert.throws(() => commandsToReach({ type: 'D20', count: 1 }, { type: 'D7', count: 1 }), /no die type D7/);
   assert.deepEqual(commandsToReach({ type: 'D6', count: 3 }, { type: 'D6', count: 2 }), ['C', 'C']);

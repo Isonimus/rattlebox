@@ -22,8 +22,11 @@ struct ChoiceChange {
 
 /**
  * @brief The choice after @p action (slice 0011). PRIMARY steps to the next type and from the last
- * back to the first (slice 0026); SECONDARY cycles the count 1, 2, 3, 1, so the StickC's two
- * buttons reach every choice; the Cardputer's UP and DOWN add or take one die, stopping at the ends. Anything else leaves the choice as it was.
+ * back to the first (slice 0026); SECONDARY cycles the count 1 up to the type's
+ * most and back to 1, so the StickC's two buttons reach every choice; the Cardputer's UP and DOWN
+ * add or take one die, stopping at the ends. A type that throws more than one body per die holds
+ * fewer dice, and stepping onto it brings the count down to what fits (ADR-0034). Anything else
+ * leaves the choice as it was.
  */
 ChoiceChange applyAction(DiceChoice choice, InputAction action);
 

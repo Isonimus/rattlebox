@@ -5,9 +5,9 @@
 
 namespace {
 
-void addSegment(ResultsBand& band, uint8_t die, const char* format, unsigned value) {
+void addSegment(ResultsBand& band, uint8_t die, const char* text) {
     BandSegment& segment = band.segments[band.segmentCount++];
-    snprintf(segment.text, sizeof segment.text, format, value);
+    snprintf(segment.text, sizeof segment.text, "%s", text);
     segment.die = die;
 }
 
@@ -21,15 +21,15 @@ ResultsBand typeBand(const char* typeName) {
     return band;
 }
 
-ResultsBand resultsBand(const char* typeName, const uint8_t* numerals, uint8_t dieCount) {
-    // More dice than the band has room for is a programming error, not a band to quietly cut short.
-    if (dieCount == 0 || dieCount > MAX_DICE) abort();
+ResultsBand resultsBand(const char* typeName, const BandResult* bodies, uint8_t bodyCount, unsigned total) {
+    // More bodies than the band has room for is a programming error, not a band to quietly cut short.
+    if (bodyCount == 0 || bodyCount > MAX_DICE) abort();
     ResultsBand band = typeBand(typeName);
-    unsigned total = 0;
-    for (uint8_t die = 0; die < dieCount; die++) {
-        addSegment(band, die, "%u", numerals[die]);
-        total += numerals[die];
+    for (uint8_t body = 0; body < bodyCount; body++) addSegment(band, body, bodies[body].text);
+    if (bodyCount > 1) {
+        char text[BAND_SEGMENT_CAPACITY];
+        snprintf(text, sizeof text, "= %u", total);
+        addSegment(band, BAND_NO_DIE, text);
     }
-    if (dieCount > 1) addSegment(band, BAND_NO_DIE, "= %u", total);
     return band;
 }

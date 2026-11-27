@@ -35,6 +35,8 @@ export const TRACES = [
   { die: 'D10', rolls: 2000, seed: 1 },
   { die: 'D12', rolls: 2000, seed: 1 },
   { die: 'D4', rolls: 2000, seed: 1 },
+  // No D100 row: a percentile body is a D10, so tracing it would re-measure the D10's own hold
+  // and tilt gap under another name. What a d% adds is numbering, which a trace cannot see.
 ];
 // The hold must outlast the longest false rest this many times over (ADR-0009).
 export const HOLD_MARGIN = 4;
@@ -58,8 +60,21 @@ export const TALLY_SIZES = [
   // 1,900 results by the same calculation, against 16.266 at 3 degrees of freedom (slice 0032).
   { die: 'D4', dice: 1, rolls: 1900 },
   { die: 'D4', dice: 3, rolls: 634 },
+  // 163,000 results by the same calculation, against 148.230 at 99 degrees of freedom (slice
+  // 0035). A d% is two bodies and one result, so `dice` is 2 here and each roll scores once. There
+  // is no three-dice row: two bodies of the three a tray holds leave no room for a second pair.
+  { die: 'D100', dice: 2, rolls: 163000 },
 ];
-export const FACES = { D4: 4, D6: 6, D8: 8, D10: 10, D12: 12, D20: 20 };
+// How many values a die of each type scores: what the probe tallies, and so the width of its
+// counts and the degrees of freedom of its chi-square. The probe reads these from the catalog
+// (src/roll/die_catalog.h); they are spelled again here because this side also carries each die's
+// sample size and critical value, which are statistics and not geometry.
+export const FACES = { D4: 4, D6: 6, D8: 8, D10: 10, D12: 12, D20: 20, D100: 100 };
+// How many bodies one die of each type throws, and how many faces one of those bodies carries.
+// They differ from FACES only for the d%, whose hundred outcomes come from two ten-faced bodies
+// (ADR-0034). The device check uses these, because it rolls too few times to test 100 outcomes.
+export const BODIES_PER_DIE = { D4: 1, D6: 1, D8: 1, D10: 1, D12: 1, D20: 1, D100: 2 };
+export const BODY_FACES = { D4: 4, D6: 6, D8: 8, D10: 10, D12: 12, D20: 20, D100: 10 };
 // The chance a die lands on any given face, for the shake report's header.
 const CHANCES = Object.entries(FACES).map(([die, faces]) => `${die} ${(100 / faces).toFixed(2)}%`).join(', ');
 
@@ -120,9 +135,15 @@ export const REPLAYS = [
 // Rolls one after another, each starting where the last ended, on a random take cut at a random
 // time: the tally of invariant #2 as the device rolls. The throw alone is chained too, because its
 // results pass chi-square while it repeats the last result far above chance.
+// The d% chains at its own, smaller size. A chained roll replays a recorded shake and costs
+// 7.23 ms against a launch's 0.78 ms, so chaining its 163,000 would take 19.6 minutes a seed
+// against 2.1. The goodness of fit does not need chaining: both ways put the two bodies in one
+// tray to collide, which is all a d% adds. What only chaining can see is a result following the
+// one before, and 55,000 rolls catch that at 1.25x too likely with the same power (slice 0035).
+export const CHAIN_SIZES = TALLY_SIZES.map((size) => (size.die === 'D100' ? { ...size, rolls: 55000 } : size));
 export const CHAINS = [
-  ...TALLY_SIZES.flatMap((size) => TALLY_SEEDS.map((seed) => ({ ...size, seed, kick: PRODUCT_KICK }))),
-  ...TALLY_SIZES.filter((size) => size.die === 'D6').flatMap((size) => TALLY_SEEDS.map((seed) => ({ ...size, seed, kick: 'throw' }))),
+  ...CHAIN_SIZES.flatMap((size) => TALLY_SEEDS.map((seed) => ({ ...size, seed, kick: PRODUCT_KICK }))),
+  ...CHAIN_SIZES.filter((size) => size.die === 'D6').flatMap((size) => TALLY_SEEDS.map((seed) => ({ ...size, seed, kick: 'throw' }))),
 ];
 
 const GRID =
@@ -283,7 +304,7 @@ export function chiSquarePValue(statistic, degreesOfFreedom) {
 }
 
 /**
- * The chance, two-sided, of a die landing on its previous face this far from 1 in faces times:
+ * The chance, two-sided, of a die landing on its previous result this far from 1 in its outcomes times:
  * the normal approximation to the binomial, whose square is chi-square with one degree of freedom.
  */
 export function repeatPValue(repeats, results, faces) {
@@ -544,12 +565,12 @@ export function checkRuns(parsed) {
   for (const chain of chains.filter((entry) => entry.kick === PRODUCT_KICK).map(summarizeChain)) {
     if (!(chain.pValue >= ALPHA)) failures.push(`${chainLabel(chain)}: chi-square p = ${chain.pValue.toExponential(2)}, below ${ALPHA}`);
     if (!(chain.repeatPValue >= ALPHA)) {
-      failures.push(`${chainLabel(chain)}: ${(100 * chain.repeatShare).toFixed(2)}% on the previous face, p = ${chain.repeatPValue.toExponential(2)}, below ${ALPHA}`);
+      failures.push(`${chainLabel(chain)}: ${(100 * chain.repeatShare).toFixed(2)}% on the previous result, p = ${chain.repeatPValue.toExponential(2)}, below ${ALPHA}`);
     }
   }
   for (const pool of poolReplays(parsed).filter((entry) => entry.kick === PRODUCT_KICK)) {
     if (!(pool.repeatPValue >= ALPHA)) {
-      failures.push(`${pool.die} ${pool.kick} ${pool.gesture} cut ${pool.cut} s: ${(100 * pool.repeatShare).toFixed(2)}% on the previous face, p = ${pool.repeatPValue.toExponential(2)}, below ${ALPHA}`);
+      failures.push(`${pool.die} ${pool.kick} ${pool.gesture} cut ${pool.cut} s: ${(100 * pool.repeatShare).toFixed(2)}% on the previous result, p = ${pool.repeatPValue.toExponential(2)}, below ${ALPHA}`);
     }
   }
   for (const planned of REPLAYS) {
@@ -570,7 +591,7 @@ function percent(share) {
 }
 
 export function shakeMarkdown(pools, chains) {
-  const lines = ['## Shakes: results on the face the die showed before', ''];
+  const lines = ['## Shakes: results equal to the one the die showed before', ''];
   lines.push(`One die, ${REPLAY_TRIALS} rolls per take, pooled over the takes; the cut is how long the shake went on after detection before the device was held still. Chance: ${CHANCES}. p is two-sided, against chance.`, '');
   const cuts = [...new Set(pools.map((pool) => pool.cut))].sort((a, b) => a - b);
   lines.push(`| Die | Shakes | Kick | ${cuts.map((cut) => `Cut ${cut} s: pooled (worst take), p`).join(' | ')} |`);
@@ -593,7 +614,7 @@ export function shakeMarkdown(pools, chains) {
     lines.push('', `With ${PRODUCT_KICK}: deepest vertex past a wall ${Math.max(...product.map((p) => p.deepestOutsideMm)).toFixed(4)} mm, fastest die ${Math.max(...product.map((p) => p.fastestMmPerS)).toFixed(0)} mm/s, ${product.reduce((sum, p) => sum + p.redetected, 0)} of ${product.reduce((sum, p) => sum + p.rolls, 0)} rolls detected more than once.`);
   }
   lines.push('', '## Shakes: chained rolls', '');
-  lines.push('| Die | Dice | Kick | Seed | Results | χ² | p | On the previous face (chance) | p | Detected more than once | Nudges per die | Knocked over after locking | Mean / longest roll from detection (s) | Deepest past a wall (mm) | Fastest (mm/s) | Runtime (s) |');
+  lines.push('| Die | Dice | Kick | Seed | Results | χ² | p | On the previous result (chance) | p | Detected more than once | Nudges per die | Knocked over after locking | Mean / longest roll from detection (s) | Deepest past a wall (mm) | Fastest (mm/s) | Runtime (s) |');
   lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const c of chains) {
     lines.push(`| ${c.die} | ${c.dice} | ${c.kick} | ${c.seed} | ${c.results} | ${c.statistic.toFixed(2)} | ${c.pValue.toFixed(3)} | ${percent(c.repeatShare)} (${percent(c.chanceShare)}) | ${c.repeatPValue.toFixed(3)} | ${c.redetected} of ${c.rolls} | ${c.nudgesPerDie.toFixed(3)} | ${percent(c.knockedOverShare)} | ${c.meanRollS.toFixed(2)} / ${c.longestRollS.toFixed(2)} | ${c.deepestOutsideMm.toFixed(4)} | ${c.fastestMmPerS.toFixed(0)} | ${c.runtimeS.toFixed(1)} |`);

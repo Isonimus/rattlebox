@@ -1,7 +1,11 @@
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unity.h>
 #include "../../src/geometry/rotation.h"
 #include "../../src/geometry/rotation.cpp"
+#include "../../src/geometry/die_numbering.h"
+#include "../../src/geometry/die_numbering.cpp"
 #include "../../src/geometry/die_shape.h"
 #include "../../src/geometry/die_shape.cpp"
 #include "../../src/render/die_view.h"
@@ -9,6 +13,10 @@
 #include "../../src/physics/physics_config.h"
 #include "../../src/render/tray_layout.h"
 #include "../../src/render/tray_layout.cpp"
+
+// A face's label read back as a number. Every die here but the percentile ones is plain, so the
+// label is the numeral the shape carries and these read as they did before labels existed.
+static uint8_t drawnNumeral(const ScreenFace& face) { return static_cast<uint8_t>(atoi(face.numeralText)); }
 
 static const float EDGE_PX = 24.0f;
 static const Vec3 CENTRE_PX{120, 67, 0};
@@ -95,7 +103,7 @@ void test_at_rest_eight_faces_point_up_four_edge_on_and_eight_down() {
     // drawing the far side instead is the opposite-face test's job, since it also counts 8.
     const DieShape mesh = makeD20(EDGE_PX);
     DieView view{};
-    viewDie(mesh, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    viewDie(mesh, Numbering::Plain, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
     TEST_ASSERT_EQUAL_UINT8(8, view.faceCount);
 }
 
@@ -104,7 +112,7 @@ void test_only_faces_toward_the_camera_are_drawn() {
     const Rotation orientations[] = {IDENTITY_ROTATION, rotationAbout({1, 2, 3}, 0.7f), faceTowardCamera(mesh, TOP_FACE)};
     for (const Rotation& orientation : orientations) {
         DieView view{};
-        viewDie(mesh, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+        viewDie(mesh, Numbering::Plain, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
         TEST_ASSERT_EQUAL_UINT8(faceCountTowardCamera(mesh, orientation), view.faceCount);
     }
 }
@@ -119,18 +127,18 @@ void test_a_face_rounding_tips_toward_the_camera_is_edge_on_and_not_drawn() {
     sliver.faceCount = 1;
     sliver.faces[0].normal = {1.0f, 0.0f, ROUNDED_EDGE_ON_Z};
     DieView view{};
-    viewDie(sliver, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    viewDie(sliver, Numbering::Plain, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
     TEST_ASSERT_EQUAL_UINT8(0, view.faceCount);
 }
 
 void test_a_face_turned_to_the_camera_is_drawn_and_its_opposite_is_not() {
     const DieShape mesh = makeD20(EDGE_PX);
     DieView view{};
-    viewDie(mesh, PX_PER_UNIT, faceTowardCamera(mesh, TOP_FACE), CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    viewDie(mesh, Numbering::Plain, PX_PER_UNIT, faceTowardCamera(mesh, TOP_FACE), CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
     bool topDrawn = false;
     for (uint8_t i = 0; i < view.faceCount; i++) {
-        TEST_ASSERT_NOT_EQUAL(OPPOSITE_SUM - mesh.faces[TOP_FACE].numeral, view.faces[i].numeral);
-        if (view.faces[i].numeral == mesh.faces[TOP_FACE].numeral) topDrawn = true;
+        TEST_ASSERT_NOT_EQUAL(OPPOSITE_SUM - mesh.faces[TOP_FACE].numeral, drawnNumeral(view.faces[i]));
+        if (drawnNumeral(view.faces[i]) == mesh.faces[TOP_FACE].numeral) topDrawn = true;
     }
     TEST_ASSERT_TRUE(topDrawn);
 }
@@ -138,13 +146,13 @@ void test_a_face_turned_to_the_camera_is_drawn_and_its_opposite_is_not() {
 void test_only_faces_within_the_numeral_angle_show_a_numeral_at_their_centre() {
     const DieShape mesh = makeD20(EDGE_PX);
     DieView view{};
-    viewDie(mesh, PX_PER_UNIT, faceTowardCamera(mesh, TOP_FACE), CENTRE_PX, WHITE, FROM_CAMERA, ONLY_THE_TOP_FACE, view);
+    viewDie(mesh, Numbering::Plain, PX_PER_UNIT, faceTowardCamera(mesh, TOP_FACE), CENTRE_PX, WHITE, FROM_CAMERA, ONLY_THE_TOP_FACE, view);
     uint8_t shown = 0;
     for (uint8_t i = 0; i < view.faceCount; i++) {
         const ScreenFace& face = view.faces[i];
         if (!face.showsNumeral) continue;
         shown++;
-        TEST_ASSERT_EQUAL_UINT8(mesh.faces[TOP_FACE].numeral, face.numeral);
+        TEST_ASSERT_EQUAL_UINT8(mesh.faces[TOP_FACE].numeral, drawnNumeral(face));
         // A face square to the camera is centred over the die's centre.
         TEST_ASSERT_EQUAL_INT16(static_cast<int16_t>(CENTRE_PX.x), face.numeralX);
         TEST_ASSERT_EQUAL_INT16(static_cast<int16_t>(CENTRE_PX.y), face.numeralY);
@@ -159,11 +167,11 @@ void test_each_numeral_sits_over_its_own_face_with_screen_y_down() {
     const DieShape mesh = makeD20(EDGE_PX);
     const Rotation orientation = rotationAbout({1, 2, 3}, 0.7f);
     DieView view{};
-    viewDie(mesh, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    viewDie(mesh, Numbering::Plain, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
     TEST_ASSERT_TRUE(view.faceCount > 1);
     for (uint8_t i = 0; i < view.faceCount; i++) {
         const ScreenFace& face = view.faces[i];
-        const Vec3 centre = rotate(orientation, centroidOfNumeral(mesh, face.numeral));
+        const Vec3 centre = rotate(orientation, centroidOfNumeral(mesh, drawnNumeral(face)));
         TEST_ASSERT_EQUAL_INT16(lroundf(CENTRE_PX.x + centre.x), face.numeralX);
         TEST_ASSERT_EQUAL_INT16(lroundf(CENTRE_PX.y - centre.y), face.numeralY);
     }
@@ -175,11 +183,11 @@ void test_a_resting_d4_shows_its_hidden_resting_numeral_on_every_visible_face() 
     const DieShape d4 = makeD4(EDGE_PX);
     for (uint8_t resting = 0; resting < d4.faceCount; resting++) {
         DieView view;
-        viewDie(d4, PX_PER_UNIT, faceFromCamera(d4, resting), CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+        viewDie(d4, Numbering::Plain, PX_PER_UNIT, faceFromCamera(d4, resting), CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
         TEST_ASSERT_EQUAL_UINT8(3, view.faceCount);
         for (uint8_t i = 0; i < view.faceCount; i++) {
             TEST_ASSERT_TRUE_MESSAGE(view.faces[i].showsNumeral, "a visible face of a resting D4 shows no numeral");
-            TEST_ASSERT_EQUAL_UINT8(d4.faces[resting].numeral, view.faces[i].numeral);
+            TEST_ASSERT_EQUAL_UINT8(d4.faces[resting].numeral, drawnNumeral(view.faces[i]));
             TEST_ASSERT_TRUE_MESSAGE(insideFace(view.faces[i], view.faces[i].numeralX, view.faces[i].numeralY),
                                      "an apex numeral falls outside its own face");
         }
@@ -191,7 +199,7 @@ void test_a_resting_d4_draws_its_numerals_however_steep_the_numeral_angle_is_set
     // threshold rule would draw the die blank. The apex rule does not use one (ADR-0033).
     const DieShape d4 = makeD4(EDGE_PX);
     DieView view;
-    viewDie(d4, PX_PER_UNIT, faceFromCamera(d4, 0), CENTRE_PX, WHITE, FROM_CAMERA, ONLY_THE_TOP_FACE, view);
+    viewDie(d4, Numbering::Plain, PX_PER_UNIT, faceFromCamera(d4, 0), CENTRE_PX, WHITE, FROM_CAMERA, ONLY_THE_TOP_FACE, view);
     TEST_ASSERT_EQUAL_UINT8(3, view.faceCount);
     for (uint8_t i = 0; i < view.faceCount; i++) TEST_ASSERT_TRUE(view.faces[i].showsNumeral);
     // And the same pose under the old rule: every visible face is too steep to carry a numeral.
@@ -219,7 +227,7 @@ void test_a_d4_never_draws_a_face_without_the_apex_whatever_its_orientation() {
     for (uint8_t step = 0; step < SWEEP; step++) {
         orientation = rotationAbout({1, 2, 3}, TURN_RAD * step);
         DieView view;
-        viewDie(d4, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+        viewDie(d4, Numbering::Plain, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
         TEST_ASSERT_TRUE(view.faceCount >= 1);
         // The face turned furthest from the camera is the one the die would read here.
         uint8_t resting = 0;
@@ -229,7 +237,7 @@ void test_a_d4_never_draws_a_face_without_the_apex_whatever_its_orientation() {
         for (uint8_t i = 0; i < view.faceCount; i++) {
             const ScreenFace& face = view.faces[i];
             TEST_ASSERT_TRUE_MESSAGE(face.showsNumeral, "a visible face of a D4 shows no numeral");
-            TEST_ASSERT_EQUAL_UINT8(d4.faces[resting].numeral, face.numeral);
+            TEST_ASSERT_EQUAL_UINT8(d4.faces[resting].numeral, drawnNumeral(face));
             // The mean of a convex polygon's corners is always inside it, so the only way the
             // drawn point can fall outside is a face projected thinner than the pixel grid it is
             // rounded onto: a tumbling D4 turned edge-on measured 1.5 px of area and put the
@@ -250,7 +258,7 @@ void test_a_top_face_die_still_hides_numerals_on_faces_too_steep_to_read() {
     const DieShape d6 = makeD6(EDGE_PX);
     const float HALF_RIGHT_ANGLE_RAD = 0.7853982f;
     DieView view;
-    viewDie(d6, PX_PER_UNIT, rotationAbout({1, 0, 0}, HALF_RIGHT_ANGLE_RAD), CENTRE_PX, WHITE, FROM_CAMERA,
+    viewDie(d6, Numbering::Plain, PX_PER_UNIT, rotationAbout({1, 0, 0}, HALF_RIGHT_ANGLE_RAD), CENTRE_PX, WHITE, FROM_CAMERA,
             ONLY_THE_TOP_FACE, view);
     // Two faces at 45° to the camera: drawn, but neither square enough to carry a numeral.
     TEST_ASSERT_EQUAL_UINT8(2, view.faceCount);
@@ -260,9 +268,9 @@ void test_a_top_face_die_still_hides_numerals_on_faces_too_steep_to_read() {
 void test_a_face_square_to_the_light_is_the_full_colour() {
     const DieShape mesh = makeD20(EDGE_PX);
     DieView view{};
-    viewDie(mesh, PX_PER_UNIT, faceTowardCamera(mesh, TOP_FACE), CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    viewDie(mesh, Numbering::Plain, PX_PER_UNIT, faceTowardCamera(mesh, TOP_FACE), CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
     for (uint8_t i = 0; i < view.faceCount; i++) {
-        if (view.faces[i].numeral == mesh.faces[TOP_FACE].numeral) TEST_ASSERT_EQUAL_HEX16(0xFFFF, view.faces[i].color565);
+        if (drawnNumeral(view.faces[i]) == mesh.faces[TOP_FACE].numeral) TEST_ASSERT_EQUAL_HEX16(0xFFFF, view.faces[i].color565);
     }
 }
 
@@ -271,7 +279,7 @@ void test_a_face_turned_from_the_light_keeps_the_ambient_floor() {
     const DieShape mesh = makeD20(EDGE_PX);
     const Lighting fromBelow{{0, 0, -1}, 0.25f};
     DieView view{};
-    viewDie(mesh, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, fromBelow, SHOW_ALL_NUMERALS, view);
+    viewDie(mesh, Numbering::Plain, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, fromBelow, SHOW_ALL_NUMERALS, view);
     TEST_ASSERT_TRUE(view.faceCount > 0);
     for (uint8_t i = 0; i < view.faceCount; i++) TEST_ASSERT_EQUAL_HEX16(shadeRgb565(WHITE, 0.25f), view.faces[i].color565);
 }
@@ -282,12 +290,12 @@ void test_a_face_more_square_to_the_light_is_never_darker() {
     const Rotation orientation = rotationAbout({1, 2, 3}, 0.7f);
     const uint16_t BLUE_MASK = 0x1F;
     DieView view{};
-    viewDie(mesh, PX_PER_UNIT, orientation, CENTRE_PX, {0, 0, 255}, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    viewDie(mesh, Numbering::Plain, PX_PER_UNIT, orientation, CENTRE_PX, {0, 0, 255}, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
     TEST_ASSERT_TRUE(view.faceCount > 1);
     for (uint8_t i = 0; i < view.faceCount; i++) {
         for (uint8_t j = 0; j < view.faceCount; j++) {
-            const float squarenessI = rotate(orientation, normalOfNumeral(mesh, view.faces[i].numeral)).z;
-            const float squarenessJ = rotate(orientation, normalOfNumeral(mesh, view.faces[j].numeral)).z;
+            const float squarenessI = rotate(orientation, normalOfNumeral(mesh, drawnNumeral(view.faces[i]))).z;
+            const float squarenessJ = rotate(orientation, normalOfNumeral(mesh, drawnNumeral(view.faces[j]))).z;
             if (squarenessI > squarenessJ) {
                 TEST_ASSERT_TRUE((view.faces[i].color565 & BLUE_MASK) >= (view.faces[j].color565 & BLUE_MASK));
             }
@@ -300,10 +308,10 @@ void test_a_d6_square_to_the_camera_shows_one_square_face_with_its_corners_and_n
     const DieShape d6 = makeD6(EDGE_PX);
     const int16_t half = static_cast<int16_t>(EDGE_PX / 2);
     DieView view{};
-    viewDie(d6, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
+    viewDie(d6, Numbering::Plain, PX_PER_UNIT, IDENTITY_ROTATION, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, view);
     TEST_ASSERT_EQUAL_UINT8(1, view.faceCount);
     const ScreenFace& face = view.faces[0];
-    TEST_ASSERT_EQUAL_UINT8(1, face.numeral);
+    TEST_ASSERT_EQUAL_UINT8(1, drawnNumeral(face));
     TEST_ASSERT_EQUAL_UINT8(4, face.cornerCount);
     for (uint8_t corner = 0; corner < face.cornerCount; corner++) {
         TEST_ASSERT_EQUAL_INT16(half, abs(face.x[corner] - static_cast<int16_t>(CENTRE_PX.x)));
@@ -318,8 +326,8 @@ void test_a_die_in_millimetres_draws_like_the_same_die_in_pixels() {
     const Rotation orientation = rotationAbout({1, 2, 3}, 0.7f);
     DieView inPixels{};
     DieView inMillimetres{};
-    viewDie(makeD20(EDGE_PX), PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, inPixels);
-    viewDie(makeD20(EDGE_PX / pxPerMm), pxPerMm, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS,
+    viewDie(makeD20(EDGE_PX), Numbering::Plain, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS, inPixels);
+    viewDie(makeD20(EDGE_PX / pxPerMm), Numbering::Plain, pxPerMm, orientation, CENTRE_PX, WHITE, FROM_CAMERA, SHOW_ALL_NUMERALS,
             inMillimetres);
     TEST_ASSERT_EQUAL_UINT8(inPixels.faceCount, inMillimetres.faceCount);
     for (uint8_t i = 0; i < inPixels.faceCount; i++) {
@@ -359,8 +367,95 @@ void test_the_tray_fills_the_screen_under_the_strip_at_the_d20s_24_px_edge() {
     TEST_ASSERT_FLOAT_WITHIN(LAYOUT_TOLERANCE_PX, D20_EDGE_PX, oneEdgeAlong.z);
 }
 
+static uint8_t faceIndexOfNumeral(const DieShape& shape, uint8_t numeral) {
+    for (uint8_t i = 0; i < shape.faceCount; i++) {
+        if (shape.faces[i].numeral == numeral) return i;
+    }
+    TEST_FAIL_MESSAGE("no face carries that numeral");
+    return 0;
+}
+
+/** @brief The label the one face turned square to the camera is drawn with, under @p numbering. */
+static void labelOfTopFace(const DieShape& shape, Numbering numbering, uint8_t numeral, char* out, size_t size) {
+    DieView view{};
+    viewDie(shape, numbering, PX_PER_UNIT, faceTowardCamera(shape, faceIndexOfNumeral(shape, numeral)), CENTRE_PX,
+            WHITE, FROM_CAMERA, ONLY_THE_TOP_FACE, view);
+    uint8_t drawn = 0;
+    for (uint8_t i = 0; i < view.faceCount; i++) {
+        if (!view.faces[i].showsNumeral) continue;
+        snprintf(out, size, "%s", view.faces[i].numeralText);
+        drawn++;
+    }
+    TEST_ASSERT_EQUAL_UINT8(1, drawn);
+}
+
+// Slice 0035. A percentile body's faces show what its numbering says, never the 1 to 10 the shape
+// carries: the shape is a D10 and only the labels tell a tens body from a units body (ADR-0034).
+void test_a_percentile_tens_body_draws_its_faces_as_00_to_90() {
+    const DieShape d10 = makeD10(EDGE_PX);
+    char label[NUMERAL_LABEL_MAX_CHARS + 1];
+    labelOfTopFace(d10, Numbering::PercentileTens, 1, label, sizeof label);
+    TEST_ASSERT_EQUAL_STRING("00", label);
+    labelOfTopFace(d10, Numbering::PercentileTens, 8, label, sizeof label);
+    TEST_ASSERT_EQUAL_STRING("70", label);
+    labelOfTopFace(d10, Numbering::PercentileTens, 10, label, sizeof label);
+    TEST_ASSERT_EQUAL_STRING("90", label);
+}
+
+void test_a_percentile_units_body_draws_its_faces_as_0_to_9() {
+    const DieShape d10 = makeD10(EDGE_PX);
+    char label[NUMERAL_LABEL_MAX_CHARS + 1];
+    labelOfTopFace(d10, Numbering::PercentileUnits, 1, label, sizeof label);
+    TEST_ASSERT_EQUAL_STRING("0", label);
+    labelOfTopFace(d10, Numbering::PercentileUnits, 4, label, sizeof label);
+    TEST_ASSERT_EQUAL_STRING("3", label);
+    labelOfTopFace(d10, Numbering::PercentileUnits, 10, label, sizeof label);
+    TEST_ASSERT_EQUAL_STRING("9", label);
+}
+
+// Whatever a percentile body's orientation, every face it draws reads as its own numbering and
+// never as the shape's numeral. A tens body is two characters at every face, a units body one, so
+// a numbering that leaked through would show up as a label of the wrong width.
+void test_a_percentile_bodys_labels_never_read_as_the_shapes_numerals() {
+    const DieShape d10 = makeD10(EDGE_PX);
+    const uint8_t SWEEP = 12;
+    const float TURN_RAD = 0.37f;
+    unsigned checkedFaces = 0;
+    for (uint8_t step = 0; step < SWEEP; step++) {
+        const Rotation orientation = rotationAbout({1, 2, 3}, TURN_RAD * step);
+        DieView tens{};
+        DieView units{};
+        viewDie(d10, Numbering::PercentileTens, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA,
+                SHOW_ALL_NUMERALS, tens);
+        viewDie(d10, Numbering::PercentileUnits, PX_PER_UNIT, orientation, CENTRE_PX, WHITE, FROM_CAMERA,
+                SHOW_ALL_NUMERALS, units);
+        TEST_ASSERT_EQUAL_UINT8(tens.faceCount, units.faceCount);
+        for (uint8_t i = 0; i < tens.faceCount; i++) {
+            if (!tens.faces[i].showsNumeral) continue;
+            const long tensValue = atol(tens.faces[i].numeralText);
+            TEST_ASSERT_EQUAL_UINT(2, strlen(tens.faces[i].numeralText));
+            TEST_ASSERT_EQUAL_INT(0, tensValue % 10);
+            TEST_ASSERT_LESS_OR_EQUAL_INT(90, tensValue);
+            const long unitsValue = atol(units.faces[i].numeralText);
+            TEST_ASSERT_EQUAL_UINT(1, strlen(units.faces[i].numeralText));
+            TEST_ASSERT_LESS_OR_EQUAL_INT(9, unitsValue);
+            // The two bodies are the same solid in the same pose, so a face's two labels are the
+            // two halves of one numeral: the tens of (n - 1) * 10 and the units of n - 1.
+            TEST_ASSERT_EQUAL_INT(tensValue / 10, unitsValue);
+            checkedFaces++;
+        }
+    }
+    // The sweep must actually have drawn numerals at every step, or the loop above asserted
+    // nothing and would pass just as well with the labels removed. The floor is the claim, not
+    // the count the sweep happens to reach.
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(SWEEP, checkedFaces);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_a_percentile_tens_body_draws_its_faces_as_00_to_90);
+    RUN_TEST(test_a_percentile_units_body_draws_its_faces_as_0_to_9);
+    RUN_TEST(test_a_percentile_bodys_labels_never_read_as_the_shapes_numerals);
     RUN_TEST(test_at_rest_eight_faces_point_up_four_edge_on_and_eight_down);
     RUN_TEST(test_only_faces_toward_the_camera_are_drawn);
     RUN_TEST(test_a_face_rounding_tips_toward_the_camera_is_edge_on_and_not_drawn);

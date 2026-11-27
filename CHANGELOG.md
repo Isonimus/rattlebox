@@ -22,6 +22,13 @@ decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
   raised corner, repeated on all three faces you can see, is the result. It passed the same
   fairness test over 1,900 simulated results. The type order is now D4, D6, D8, D10, D12, D20, so
   the type button steps to the D4 first.
+- **Percentile dice (d%).** A pair of ten-sided dice read together as 1 to 100: one shows 00 to 90
+  and the other 0 to 9, and 00 with 0 is 100. It is the one type that is two dice rather than one,
+  so only a single d% fits the tray and the count button holds at one while it is chosen. The band
+  shows both dice and the percentile they make, as `D100 70 3 = 73`. It passed the fairness test
+  over 163,000 simulated rolls of all 100 outcomes, rather than over each die's ten faces, because
+  the two dice knock into each other and fair halves would not prove a fair pair. The type order is
+  now D4, D6, D8, D10, D12, D20, D100.
 - **Each die waits its own time before its result locks**, where every die used to wait the same
   0.15 s. How long a die can balance on an edge before it topples depends on its shape, so the
   wait is now measured per die: 0.01 s for a D6 and a D8, 0.04 s for a D12 and a D20, and 0.07 s

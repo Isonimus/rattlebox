@@ -194,7 +194,7 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
     }
 }
 
-void addShakenRoll(ShakenTally& tally, const ShakenOutcome& outcome) {
+void addShakenRoll(ShakenTally& tally, const DieKind& kind, const ShakenOutcome& outcome) {
     tally.rolls++;
     tally.deepestOutsideMm = fmaxf(tally.deepestOutsideMm, outcome.deepestOutsideMm);
     tally.fastestMmPerS = fmaxf(tally.fastestMmPerS, outcome.fastestMmPerS);
@@ -211,12 +211,22 @@ void addShakenRoll(ShakenTally& tally, const ShakenOutcome& outcome) {
         tally.unsettled++;
         return;
     }
-    for (uint8_t die = 0; die < roll.dieCount; die++) {
-        const uint8_t numeral = roll.results[die].numeral;
-        tally.counts[numeral]++;
+    // One result per die, which for a d% is one percentile from its two bodies (ADR-0034). A
+    // trailing body with no die to belong to would be a roll launched with the wrong body count.
+    for (uint8_t body = 0; body + kind.bodiesPerRoll <= roll.dieCount; body += kind.bodiesPerRoll) {
+        uint8_t locked[MAX_BODIES_PER_DIE];
+        uint8_t before[MAX_BODIES_PER_DIE];
+        uint8_t shown[MAX_BODIES_PER_DIE];
+        for (uint8_t part = 0; part < kind.bodiesPerRoll; part++) {
+            locked[part] = roll.results[body + part].numeral;
+            before[part] = outcome.startNumerals[body + part];
+            shown[part] = roll.shownNumerals[body + part];
+        }
+        const unsigned value = dieValue(kind, locked);
+        tally.counts[value]++;
         tally.results++;
-        if (numeral == outcome.startNumerals[die]) tally.sameAsBefore++;
-        if (numeral != roll.shownNumerals[die]) tally.knockedOver++;
+        if (value == dieValue(kind, before)) tally.sameAsBefore++;
+        if (value != dieValue(kind, shown)) tally.knockedOver++;
     }
 }
 
@@ -231,15 +241,16 @@ float durationS(const ShakeRecording& recording) {
     return (recording.samples.back().timestampUs - recording.samples.front().timestampUs) / static_cast<float>(US_PER_S);
 }
 
-ShakenTally chainRolls(World& world, const std::vector<ShakeRecording>& recordings, unsigned long rolls, KickPlan kick,
-                       UniformSource& source, const RestThresholds& thresholds, float timeLimitS) {
+ShakenTally chainRolls(World& world, const DieKind& kind, const std::vector<ShakeRecording>& recordings,
+                       unsigned long rolls, KickPlan kick, UniformSource& source, const RestThresholds& thresholds,
+                       float timeLimitS) {
     ShakenTally tally{};
     for (unsigned long roll = 0; roll < rolls; roll++) {
         // One draw per statement, so the same seed picks the same way on every compiler.
         const size_t pick = static_cast<size_t>(source.nextUnit() * recordings.size());
         const ShakeRecording& recording = recordings[pick];
         const float extraS = source.nextUnit() * durationS(recording);
-        addShakenRoll(tally, simulateShakenRoll(world, recording, extraS, kick, source, thresholds, timeLimitS));
+        addShakenRoll(tally, kind, simulateShakenRoll(world, recording, extraS, kick, source, thresholds, timeLimitS));
     }
     return tally;
 }

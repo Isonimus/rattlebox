@@ -17,6 +17,7 @@
 #include "render/die_drawing.h"
 #include "render/die_view.h"
 #include "render/results_band.h"
+#include "roll/roll_band.h"
 #include "render/tray_layout.h"
 #include "roll/dice_choice.h"
 #include "roll/dice_roll.h"
@@ -197,8 +198,10 @@ void reportRest() {
 }
 
 void launch() {
-    world.shape = &dieKind(choice.type).shape;
-    shakeRoll.launch(world, results, choice.count, randomness);
+    const DieKind& kind = dieKind(choice.type);
+    world.shape = &kind.shape;
+    // The player's count counts dice; the tray holds bodies, and a d% is two of them (ADR-0034).
+    shakeRoll.launch(world, results, choice.count * kind.bodiesPerRoll, randomness);
     startRollCounters();
     Serial.printf("[roll] launch %s x%u\n", dieTypeName(choice.type), static_cast<unsigned>(choice.count));
 }
@@ -214,7 +217,11 @@ void onShake() {
     // its seconds count from the first, as the fairness test counts them.
     if (rollReported || rollDetections == 0) startRollCounters();
     rollDetections++;
-    Serial.printf("[roll] shake %s x%u", dieTypeName(choice.type), static_cast<unsigned>(world.dieCount));
+    // The count is dice, as the launch line and the player's own choice are. It is not the tray's
+    // body count, which is twice this for a d%: one log line meaning dice and the next meaning
+    // bodies would read as a roll that changed size on the way (ADR-0034). The numerals below are
+    // per body, so the two are both visible and neither is guessed at.
+    Serial.printf("[roll] shake %s x%u", dieTypeName(choice.type), static_cast<unsigned>(choice.count));
     if (shakeRoll.hasLevel()) {
         Serial.printf(" level_tilt_deg=%.1f\n", levelTiltDeg());
     } else {
@@ -273,7 +280,7 @@ void reportRoll() {
         locked[die] = results[die].numeral;
         shown[die] = shownNumeral(world, die);
     }
-    Serial.printf("[roll] locked %s x%u", dieTypeName(choice.type), static_cast<unsigned>(world.dieCount));
+    Serial.printf("[roll] locked %s x%u", dieTypeName(choice.type), static_cast<unsigned>(choice.count));
     printNumerals("results", locked, world.dieCount);
     printNumerals("shown", shown, world.dieCount);
     Serial.printf(" seconds=%.3f nudges=%u detections=%u\n", seconds, static_cast<unsigned>(rollNudges),
@@ -305,8 +312,9 @@ void drawDice(LGFX_Sprite& canvas) {
     for (uint8_t i = 0; i < world.dieCount; i++) {
         const uint8_t die = order[i];
         const DieBody& body = world.dice[die];
-        viewDie(*world.shape, TRAY_PX_PER_MM, toRotation(body.orientation), trayToScreenPx(body.position),
-                DIE_COLORS[die], LIGHTING, NUMERAL_MIN_FACING, view);
+        viewDie(*world.shape, bodyNumbering(dieKind(choice.type), die), TRAY_PX_PER_MM,
+                toRotation(body.orientation), trayToScreenPx(body.position), DIE_COLORS[die], LIGHTING,
+                NUMERAL_MIN_FACING, view);
         drawDieFaces(canvas, view);
         drawDieNumerals(canvas, view, packed(NUMERAL_COLOR));
     }
@@ -324,8 +332,8 @@ void drawFrame(LGFX_Sprite& canvas) {
         return;
     }
     uint8_t numerals[MAX_DICE];
-    for (uint8_t die = 0; die < world.dieCount; die++) numerals[die] = results[die].numeral;
-    drawResultsBand(canvas, resultsBand(typeName, numerals, world.dieCount), colors);
+    for (uint8_t body = 0; body < world.dieCount; body++) numerals[body] = results[body].numeral;
+    drawResultsBand(canvas, lockedBand(choice.type, numerals, world.dieCount), colors);
 }
 
 /** @brief Start sending @p canvas to the panel by DMA and return without waiting for it. */

@@ -66,7 +66,9 @@ board is captured from shake to locked result.
   is the same face its top vertex stands over, declared per die so the other five are untouched
   (ADR-0033, slice 0032). The D10 shipped reading 1 to 10, where a
   printed D10's 0 face is its 10, which keeps the one numbering rule every die shares (slice
-  0027); d% will read a units die's 10 back as 0. The D12 shipped raising the shape's corner limit
+  0027); the d% shipped reading a units body's 10 back as 0 and a tens body's 1 as 00, declared
+  beside each body rather than written into the shape, and it is the one type that is two bodies,
+  so only one of it fits the tray (ADR-0034, slice 0035). The D12 shipped raising the shape's corner limit
   to 5 and its vertex limit to 20, which cost 8,448 bytes of static RAM on both boards and is the
   last such raise, since a D4 and a d% both fit inside it (ADR-0030, slice 0029). Tracing the D12
   also found the angular rest speed counting a slowly turning die as stopped, so every die's lock

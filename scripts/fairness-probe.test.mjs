@@ -329,7 +329,7 @@ test('a product chain that repeats the last result too often fails, though chi-s
   const run = replacing(completeRun(), isPlannedChain(PRODUCT_D6_CHAIN), chain(PRODUCT_D6_CHAIN, 816));
   const failures = checkRuns(run);
   assert.equal(failures.length, 1);
-  assert.match(failures[0], /^chain D6 ×1 spin=0\.1 seed 1: 24\.00% on the previous face, p = .* below 0\.001$/);
+  assert.match(failures[0], /^chain D6 ×1 spin=0\.1 seed 1: 24\.00% on the previous result, p = .* below 0\.001$/);
 });
 
 test('a product chain whose results are unfair fails', () => {
@@ -344,7 +344,7 @@ test('a throw chain that repeats far above chance is reported, not failed', () =
   assert.deepEqual(checkRuns(replacing(completeRun(), isPlannedChain(throwChain), chain(throwChain, 900))), []);
 });
 
-test('product replays pooled over their takes fail when they keep the previous face', () => {
+test('product replays pooled over their takes fail when they keep the previous result', () => {
   // Every gentle take, the operator's and the participants': they pool together as one kind.
   const planned = REPLAYS.filter((r) => r.kick === PRODUCT_KICK && r.die === 'D6' && r.cut === 0 && gesture(r.file) === 'gentle');
   let run = completeRun();
@@ -354,7 +354,7 @@ test('product replays pooled over their takes fail when they keep the previous f
   }
   const failures = checkRuns(run);
   assert.equal(failures.length, 1);
-  assert.match(failures[0], /^D6 spin=0\.1 gentle cut 0 s: 20\.00% on the previous face, p = .* below 0\.001$/);
+  assert.match(failures[0], /^D6 spin=0\.1 gentle cut 0 s: 20\.00% on the previous result, p = .* below 0\.001$/);
 });
 
 test('a shake never detected, a roll never settled and a missing replay or chain are each named', () => {
@@ -380,7 +380,7 @@ test('replays pool per die, gesture, kick and cut, keeping the worst take', () =
   assert.match(markdown, /\| D6 \| gentle \| none \| 81\.67% \(90\.00%\), 0\.000 \|/);
   assert.match(markdown, /\| D6 \| 1 \| spin=0\.1 \| 1 \| 3400 \| [\d.]+ \| [\d.]+ \| 16\.68% \(16\.67%\) \| 0\.988 \| 3 of 3400 \|/);
   // Every die the replays roll has its chance in the header, the D8 included (slice 0026).
-  assert.match(markdown, /Chance: D4 25\.00%, D6 16\.67%, D8 12\.50%, D10 10\.00%, D12 8\.33%, D20 5\.00%\./);
+  assert.match(markdown, /Chance: D4 25\.00%, D6 16\.67%, D8 12\.50%, D10 10\.00%, D12 8\.33%, D20 5\.00%, D100 1\.00%\./);
 });
 
 test('each take of a pooled replay rolls from its own seed', () => {

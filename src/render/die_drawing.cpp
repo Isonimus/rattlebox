@@ -17,6 +17,8 @@ void drawDieNumerals(LGFX_Sprite& canvas, const DieView& view, uint16_t numeralC
     canvas.setTextColor(numeralColor565);
     for (uint8_t i = 0; i < view.faceCount; i++) {
         const ScreenFace& face = view.faces[i];
-        if (face.showsNumeral) canvas.drawNumber(face.numeral, face.numeralX, face.numeralY);
+        // drawString, not drawNumber: a tens body's "00" is two characters and not the number
+        // zero (ADR-0034). The datum above centres either length, as the D10's "10" already was.
+        if (face.showsNumeral) canvas.drawString(face.numeralText, face.numeralX, face.numeralY);
     }
 }

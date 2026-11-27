@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <vector>
 #include "../../imu/imu_sample.h"
+#include "../../roll/die_catalog.h"
 #include "../../roll/shake_roll.h"
 #include "simulated_roll.h"
 
@@ -61,12 +62,20 @@ ShakenOutcome simulateShakenRoll(World& world, const ShakeRecording& recording, 
                                  UniformSource& source, const RestThresholds& thresholds, float timeLimitS,
                                  ReplayObserver* observer = nullptr);
 
-/** @brief Shaken rolls added up: the results, and what went wrong on the way to them. */
+/**
+ * @brief Shaken rolls added up: the results, and what went wrong on the way to them.
+ *
+ * What it counts is a die's value, not a body's face: for the six one-body types those are the
+ * same number, and for the d% a roll is one result from 1 to 100 rather than two from 1 to 10
+ * (ADR-0034). The serial-dependence check follows it, so a d% is asked whether percentiles repeat
+ * and not whether a tens body does.
+ */
 struct ShakenTally {
-    unsigned long counts[DIE_MAX_FACES + 1];
+    unsigned long counts[MAX_DIE_OUTCOMES + 1];
     unsigned long results;
     /**
-     * @brief Results on the face their die showed before the shake: 1 in faces from a fair roll.
+     * @brief Results equal to the value their die showed before the shake: 1 in its outcomes from
+     * a fair roll.
      * The face shown, not the last locked result: the bias this counts is the die staying near
      * where it lies. The two differ only for a die knocked over after locking, 0.18% of D20
      * results at most and none with one die (ADR-0010).
@@ -85,7 +94,7 @@ struct ShakenTally {
     unsigned long rolls;
 };
 
-void addShakenRoll(ShakenTally& tally, const ShakenOutcome& outcome);
+void addShakenRoll(ShakenTally& tally, const DieKind& kind, const ShakenOutcome& outcome);
 
 /** @brief Set @p world to @p dice dice of @p shape resting where a left-alone roll leaves them; false if it never settled. */
 bool restingWorld(World& world, const DieShape& shape, uint8_t dice, UniformSource& source,
@@ -98,7 +107,8 @@ float durationS(const ShakeRecording& recording);
  * starts where the last one left the dice, on a random one of @p recordings cut at a random time
  * after its detection.
  */
-ShakenTally chainRolls(World& world, const std::vector<ShakeRecording>& recordings, unsigned long rolls, KickPlan kick,
-                       UniformSource& source, const RestThresholds& thresholds, float timeLimitS);
+ShakenTally chainRolls(World& world, const DieKind& kind, const std::vector<ShakeRecording>& recordings,
+                       unsigned long rolls, KickPlan kick, UniformSource& source, const RestThresholds& thresholds,
+                       float timeLimitS);
 
 #endif // SHAKEN_ROLL_H

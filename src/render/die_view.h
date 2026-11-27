@@ -2,6 +2,7 @@
 #define DIE_VIEW_H
 
 #include <stdint.h>
+#include "../geometry/die_numbering.h"
 #include "../geometry/die_shape.h"
 #include "../geometry/rotation.h"
 
@@ -38,7 +39,12 @@ struct ScreenFace {
     bool     showsNumeral;
     int16_t  numeralX;
     int16_t  numeralY;
-    uint8_t  numeral;
+    /**
+     * @brief What the face shows, already resolved through the die's numbering: "7" for a plain
+     * die, "00" to "90" for a percentile tens body. Text and not a number because "00" is two
+     * characters and not zero (ADR-0034).
+     */
+    char     numeralText[NUMERAL_LABEL_MAX_CHARS + 1];
 };
 
 /** @brief The front faces of one die, in no particular order: a convex die's front faces never overlap. */
@@ -54,15 +60,17 @@ struct DieView {
  * A face is drawn only if its normal turns toward the camera by more than FACING_EDGE_ON; it shows its numeral
  * only if that component is at least @p numeralMinFacing, the cosine of the widest angle
  * from the camera at which a numeral still reads on so small a face. @p pxPerUnit scales the
- * shape's length unit to pixels, so the physics can keep real millimetres.
+ * shape's length unit to pixels, so the physics can keep real millimetres. @p numbering says what
+ * this body's numerals mean, so a percentile body draws 00 to 90 or 0 to 9 where the shape still
+ * holds 1 to 10 (ADR-0034).
  *
  * A die that declares NumeralReading::Apex ignores @p numeralMinFacing, because the rule it
  * needs is not an angle (ADR-0033): its result is on the face it rests on, which faces away, and
  * the digit is drawn on every visible face meeting the raised corner. The raised corner is found
  * from that resting face, so what the screen shows can never disagree with what the die reads.
  */
-void viewDie(const DieShape& shape, float pxPerUnit, const Rotation& orientation, Vec3 centrePx, Rgb base,
-             const Lighting& lighting, float numeralMinFacing, DieView& view);
+void viewDie(const DieShape& shape, Numbering numbering, float pxPerUnit, const Rotation& orientation,
+             Vec3 centrePx, Rgb base, const Lighting& lighting, float numeralMinFacing, DieView& view);
 
 /** @brief Scale @p base by @p brightness (0 to 1) and pack it as the panel's RGB565. */
 uint16_t shadeRgb565(Rgb base, float brightness);

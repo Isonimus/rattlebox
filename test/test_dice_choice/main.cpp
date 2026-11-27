@@ -1,4 +1,10 @@
 #include <unity.h>
+#include "../../src/geometry/die_numbering.h"
+#include "../../src/geometry/die_numbering.cpp"
+#include "../../src/geometry/die_shape.h"
+#include "../../src/geometry/die_shape.cpp"
+#include "../../src/roll/die_catalog.h"
+#include "../../src/roll/die_catalog.cpp"
 #include "../../src/roll/dice_choice.h"
 #include "../../src/roll/dice_choice.cpp"
 
@@ -22,7 +28,25 @@ void test_primary_steps_the_type_up_wraps_round_and_keeps_the_count() {
     assertChange({DieType::D10, 2}, true, applyAction({DieType::D8, 2}, InputAction::PRIMARY));
     assertChange({DieType::D12, 2}, true, applyAction({DieType::D10, 2}, InputAction::PRIMARY));
     assertChange({DieType::D20, 2}, true, applyAction({DieType::D12, 2}, InputAction::PRIMARY));
-    assertChange({DieType::D4, 2}, true, applyAction({DieType::D20, 2}, InputAction::PRIMARY));
+    // The d% is last, and it holds one die, so the count it is stepped onto with comes down to 1.
+    assertChange({DieType::D100, 1}, true, applyAction({DieType::D20, 2}, InputAction::PRIMARY));
+    assertChange({DieType::D4, 1}, true, applyAction({DieType::D100, 1}, InputAction::PRIMARY));
+}
+
+// Slice 0035. A d% is two bodies of the three the tray holds, so a second pair has no room. The
+// count control is not dead on it: it is the clamp UP and DOWN already had, reaching its one value.
+void test_the_count_controls_hold_a_percentile_roll_at_one_die() {
+    const InputAction counting[] = {InputAction::SECONDARY, InputAction::UP, InputAction::DOWN};
+    for (InputAction action : counting) {
+        assertChange({DieType::D100, 1}, false, applyAction({DieType::D100, 1}, action));
+    }
+}
+
+// Stepping onto a type that holds fewer dice brings the count down, from any count.
+void test_stepping_onto_the_percentile_die_brings_any_count_down_to_one() {
+    for (uint8_t count = 1; count <= MAX_DICE; count++) {
+        assertChange({DieType::D100, 1}, true, applyAction({DieType::D20, count}, InputAction::PRIMARY));
+    }
 }
 
 void test_secondary_cycles_the_count_through_every_value() {
@@ -49,6 +73,8 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_boot_is_one_d20);
     RUN_TEST(test_primary_steps_the_type_up_wraps_round_and_keeps_the_count);
+    RUN_TEST(test_the_count_controls_hold_a_percentile_roll_at_one_die);
+    RUN_TEST(test_stepping_onto_the_percentile_die_brings_any_count_down_to_one);
     RUN_TEST(test_secondary_cycles_the_count_through_every_value);
     RUN_TEST(test_up_and_down_step_the_count_and_stop_at_the_ends);
     RUN_TEST(test_other_actions_change_nothing);
