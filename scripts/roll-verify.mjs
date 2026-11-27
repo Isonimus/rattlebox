@@ -42,7 +42,11 @@ export const ROLLS = { D4: 40, D6: 40, D8: 40, D10: 40, D12: 40, D20: 60, D100: 
 export const TYPE_ORDER = ['D4', 'D6', 'D8', 'D10', 'D12', 'D20', 'D100'];
 // The product's choice at boot (src/roll/dice_choice.h).
 export const BOOT_CHOICE = { type: 'D20', count: 1 };
-const MAX_DICE = 3;
+// The bodies the tray holds (MAX_DICE, src/physics/world.h). This table, TYPE_ORDER and ROLLS are
+// spelled out rather than read from the firmware because this check runs against a board over a
+// serial port, where no compiler need be; `roll-verify.test.mjs` fails if any of them disagrees
+// with the catalog the firmware compiled (ADR-0034).
+export const MAX_DICE = 3;
 
 /** The most dice of `type` a roll may throw: MAX_DICE bodies, `BODIES_PER_DIE` at a time. */
 export function maxDiceOf(type) {

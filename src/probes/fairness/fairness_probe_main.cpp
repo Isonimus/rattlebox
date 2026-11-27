@@ -13,8 +13,11 @@
 #include "shaken_roll.h"
 #include "simulated_roll.h"
 
-// The fairness probe (slice 0008), a host program. scripts/fairness-probe.mjs runs it.
+// The fairness probe (slice 0008), a host program. scripts/fairness-probe.mjs runs it, and
+// scripts/die-tables.test.mjs asks it for the catalog.
 //
+//   catalog                            the die types as key-values: what the firmware compiled, for
+//                                         the host scripts to check their own die tables against
 //   trace <die> <rolls> <seed>         one die per roll, left to move for TRACE_SECONDS with
 //                                         nothing locking, to measure what the rest thresholds,
 //                                         hold time and cocked tolerance are chosen from
@@ -30,7 +33,8 @@
 //
 // <die> is a name from the die catalog (src/roll/die_catalog.cpp).
 //
-// Each prints one line per roll (trace) or per run (tally, replay, chain) for the host to aggregate.
+// Each prints one line per roll (trace) or per run (tally, replay, chain) for the host to
+// aggregate; catalog prints a header line and one line per die type.
 
 namespace {
 
@@ -177,12 +181,36 @@ bool parseKick(const char* name, KickPlan& kick) {
 
 int usage() {
     const char* dice = dieTypeChoices();
-    fprintf(stderr, "usage: fairness_probe trace <%s> <rolls> <seed>\n"
+    fprintf(stderr, "usage: fairness_probe catalog\n"
+                    "       fairness_probe trace <%s> <rolls> <seed>\n"
                     "       fairness_probe tally <%s> <dice 1-%u> <rolls> <seed>\n"
                     "       fairness_probe replay <%s> <dice> <trials> <seed> <none|throw|reorient|spin=S> <extra_s|full> <csv>\n"
                     "       fairness_probe chain <%s> <dice> <rolls> <seed> <none|throw|reorient|spin=S> <csv>...\n",
             dice, dice, static_cast<unsigned>(MAX_DICE), dice, dice);
     return EXIT_USAGE;
+}
+
+/**
+ * @brief The catalog as key-values, one line per die type, for the host scripts to check against.
+ *
+ * scripts/fairness-probe.mjs and scripts/roll-verify.mjs each spell out the die names, their face
+ * counts and how many bodies one die throws. They have to: the device check drives a board over a
+ * serial port and must run where no compiler is on the path, so neither script may depend on this
+ * program to do its job. A spelled-out table drifts in silence, so this mode prints what the
+ * firmware actually compiled and their tests fail on any disagreement with it (ADR-0034).
+ */
+int runCatalog() {
+    printf("[catalog] max_dice=%u types=%u\n", static_cast<unsigned>(MAX_DICE),
+           static_cast<unsigned>(DIE_TYPE_COUNT));
+    for (uint8_t index = 0; index < DIE_TYPE_COUNT; index++) {
+        const DieType type = static_cast<DieType>(index);
+        const DieKind& kind = dieKind(type);
+        printf("[catalog-die] index=%u name=%s faces=%u bodies_per_die=%u max_dice_of=%u outcomes=%u\n",
+               static_cast<unsigned>(index), kind.name, static_cast<unsigned>(kind.shape.faceCount),
+               static_cast<unsigned>(kind.bodiesPerRoll), static_cast<unsigned>(maxDiceOf(type)),
+               dieOutcomes(kind));
+    }
+    return 0;
 }
 
 double secondsSince(clock_t start) { return static_cast<double>(clock() - start) / CLOCKS_PER_SEC; }
@@ -344,6 +372,7 @@ bool wholeDice(const DieKind& kind, unsigned long bodies) {
 
 int main(int argc, char** argv) {
     if (argc < 2) return usage();
+    if (strcmp(argv[1], "catalog") == 0 && argc == 2) return runCatalog();
     const DieKind* kind = nullptr;
     unsigned long rolls = 0;
     unsigned long seed = 0;

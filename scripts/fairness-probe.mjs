@@ -68,7 +68,9 @@ export const TALLY_SIZES = [
 // How many values a die of each type scores: what the probe tallies, and so the width of its
 // counts and the degrees of freedom of its chi-square. The probe reads these from the catalog
 // (src/roll/die_catalog.h); they are spelled again here because this side also carries each die's
-// sample size and critical value, which are statistics and not geometry.
+// sample size and critical value, which are statistics and not geometry, and because a device
+// check must run where no compiler is. `fairness-probe.test.mjs` fails if any of the three tables
+// below disagrees with the catalog the firmware compiled, read through the probe's `catalog` mode.
 export const FACES = { D4: 4, D6: 6, D8: 8, D10: 10, D12: 12, D20: 20, D100: 100 };
 // How many bodies one die of each type throws, and how many faces one of those bodies carries.
 // They differ from FACES only for the d%, whose hundred outcomes come from two ten-faced bodies
@@ -174,6 +176,22 @@ export function parseProbeLine(line) {
       },
     };
   }
+  if (line.startsWith('[catalog] ')) {
+    const fields = keyValues(line);
+    return { kind: 'catalog', maxDice: Number(fields.max_dice), types: Number(fields.types) };
+  }
+  if (line.startsWith('[catalog-die] ')) {
+    const fields = keyValues(line);
+    return {
+      kind: 'catalog-die',
+      index: Number(fields.index),
+      name: fields.name,
+      faces: Number(fields.faces),
+      bodiesPerDie: Number(fields.bodies_per_die),
+      maxDiceOf: Number(fields.max_dice_of),
+      outcomes: Number(fields.outcomes),
+    };
+  }
   if (line.startsWith('[trace] ')) {
     const fields = keyValues(line);
     return {
@@ -246,6 +264,69 @@ function shakenFields(fields) {
     longestRollS: Number(fields.longest_roll_s),
     runtimeS: Number(fields.runtime_s),
   };
+}
+
+// ------------------------------------------------------------------- catalog
+
+/**
+ * The catalog as the probe prints it: `{maxDice, dice: [{index, name, faces, bodiesPerDie,
+ * maxDiceOf, outcomes}]}`, in the order the firmware steps its die types in.
+ *
+ * Throws on a count or an index that does not match the lines, so a truncated run is a failure
+ * rather than a short catalog that silently agrees with a short table.
+ */
+export function parseCatalog(parsed) {
+  const header = parsed.filter((entry) => entry.kind === 'catalog');
+  if (header.length !== 1) throw new Error(`expected one [catalog] line, got ${header.length}`);
+  const dice = parsed.filter((entry) => entry.kind === 'catalog-die');
+  if (dice.length !== header[0].types) throw new Error(`[catalog] says ${header[0].types} types, got ${dice.length} [catalog-die] lines`);
+  dice.forEach((die, position) => {
+    if (die.index !== position) throw new Error(`[catalog-die] ${die.name} is at index ${die.index}, printed ${position}th`);
+  });
+  return { maxDice: header[0].maxDice, dice };
+}
+
+/**
+ * Failures where @p table is not keyed by exactly the catalog's die names, or where `expected(die)`
+ * is given and a value differs from it.
+ *
+ * The host tables are checked against the catalog rather than read from it, because neither script
+ * may need a compiler to run: `roll-verify.mjs` drives a board over a serial port, and demanding a
+ * built probe before it could do that would make a device check depend on a host toolchain. So the
+ * tables stay spelled out and the tests fail on drift (ADR-0034).
+ */
+export function tableFailures(label, catalog, table, expected = null) {
+  const failures = [];
+  const names = catalog.dice.map((die) => die.name);
+  for (const name of Object.keys(table)) {
+    if (!names.includes(name)) failures.push(`${label} names ${name}, which is not in the catalog`);
+  }
+  for (const die of catalog.dice) {
+    if (!(die.name in table)) {
+      failures.push(`${label} has no entry for ${die.name}`);
+      continue;
+    }
+    if (expected === null) continue;
+    const want = expected(die);
+    if (table[die.name] !== want) failures.push(`${label}[${die.name}] is ${table[die.name]}, the catalog says ${want}`);
+  }
+  return failures;
+}
+
+/** Failures where a run's body count would not make whole dice of its type, or would not fit the tray. */
+export function bodyCountFailures(label, catalog, sizes) {
+  const failures = [];
+  for (const size of sizes) {
+    const die = catalog.dice.find((entry) => entry.name === size.die);
+    if (die === undefined) {
+      failures.push(`${label} rolls ${size.die}, which is not in the catalog`);
+      continue;
+    }
+    // The probe refuses a body count that leaves a body over, because half a d% is no result at all.
+    if (size.dice % die.bodiesPerDie !== 0) failures.push(`${label} rolls ${size.dice} ${size.die} bodies, not a whole number of dice of ${die.bodiesPerDie}`);
+    if (size.dice > catalog.maxDice) failures.push(`${label} rolls ${size.dice} ${size.die} bodies, more than the tray's ${catalog.maxDice}`);
+  }
+  return failures;
 }
 
 // ---------------------------------------------------------------- statistics
@@ -672,6 +753,19 @@ export async function runAll(runs, limit, run) {
   return outputs.flat();
 }
 
+function buildProbe() {
+  const build = spawnSync('pio', ['run', '-e', ENV], { encoding: 'utf8' });
+  if (build.status !== 0) throw new Error(`pio run -e ${ENV} failed:\n${build.stdout}${build.stderr}`);
+}
+
+/** Build the probe and read the catalog the firmware compiled. A cold build of this env takes 1.4 s. */
+export function readCatalog() {
+  buildProbe();
+  const run = spawnSync(PROGRAM, ['catalog'], { encoding: 'utf8' });
+  if (run.status !== 0) throw new Error(`${PROGRAM} catalog exited with code ${run.status}: ${run.stderr.trim()}`);
+  return parseCatalog(run.stdout.split('\n').filter((line) => line.length > 0).map(parseProbeLine));
+}
+
 function runProgram(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(PROGRAM, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -688,8 +782,7 @@ function runProgram(args) {
 }
 
 async function main() {
-  const build = spawnSync('pio', ['run', '-e', ENV], { encoding: 'utf8' });
-  if (build.status !== 0) throw new Error(`pio run -e ${ENV} failed:\n${build.stdout}${build.stderr}`);
+  buildProbe();
 
   console.log('Running traces, tallies, replays and chains; about ten minutes on 12 cores...');
   // The chains are the longest runs, so they start first rather than finishing last alone.

@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 
 import {
-  ALL_TAKES, CHAINS, FACES, GENTLE_TAKES, HARD_TAKES, PRODUCT_KICK, REPLAYS, REPLAY_TRIALS, TALLY_SEEDS, TALLY_SIZES, TRACES, checkRuns,
-  chiSquarePValue, chiSquareStatistic, gesture, parseProbeLine, participantTakes, poolReplays, repeatPValue, runAll, shakeMarkdown,
-  summarizeChain, summarizeTally, summarizeTraces, summaryMarkdown, tiltGap,
+  ALL_TAKES, CHAINS, FACES, GENTLE_TAKES, HARD_TAKES, PRODUCT_KICK, REPLAYS, REPLAY_TRIALS, TALLY_SEEDS, TALLY_SIZES, TRACES,
+  bodyCountFailures, checkRuns, chiSquarePValue, chiSquareStatistic, gesture, parseCatalog, parseProbeLine, participantTakes,
+  poolReplays, repeatPValue, runAll, shakeMarkdown, summarizeChain, summarizeTally, summarizeTraces, summaryMarkdown,
+  tableFailures, tiltGap,
 } from './fairness-probe.mjs';
 
 // The product's cocked tolerance, which the probe program now prints on the grid line so the
@@ -435,4 +436,47 @@ test('the first failed run stops new runs from starting', async () => {
   await assert.rejects(runAll(['bad', 'a', 'b', 'c', 'd'], 2, run), /crashed/);
   assert.deepEqual(started, ['bad', 'a']);
   assert.deepEqual(await runAll(['a', 'b', 'c'], 2, run), ['a', 'b', 'c']);
+});
+
+// ------------------------------------------------------------------- catalog
+
+// A two-die catalog in the form the probe prints: one plain die and one that throws two bodies,
+// which is the only shape a table can get wrong in more than one way.
+const CATALOG_HEADER = '[catalog] max_dice=3 types=2';
+const CATALOG_D6 = '[catalog-die] index=0 name=D6 faces=6 bodies_per_die=1 max_dice_of=3 outcomes=6';
+const CATALOG_D100 = '[catalog-die] index=1 name=D100 faces=10 bodies_per_die=2 max_dice_of=1 outcomes=100';
+const TWO_DIE_CATALOG = parseCatalog([CATALOG_HEADER, CATALOG_D6, CATALOG_D100].map(parseProbeLine));
+
+test('a catalog is read with its order, its bodies and its outcomes', () => {
+  assert.equal(TWO_DIE_CATALOG.maxDice, 3);
+  assert.deepEqual(TWO_DIE_CATALOG.dice.map((die) => die.name), ['D6', 'D100']);
+  assert.deepEqual(TWO_DIE_CATALOG.dice[1], {
+    kind: 'catalog-die', index: 1, name: 'D100', faces: 10, bodiesPerDie: 2, maxDiceOf: 1, outcomes: 100,
+  });
+});
+
+test('a catalog cut short or out of order is a failure, not a shorter catalog', () => {
+  // A run cut after one die would otherwise agree with any table that also stopped there.
+  assert.throws(() => parseCatalog([CATALOG_HEADER, CATALOG_D6].map(parseProbeLine)), /says 2 types, got 1/);
+  assert.throws(() => parseCatalog([CATALOG_HEADER, CATALOG_D100, CATALOG_D6].map(parseProbeLine)), /is at index 1, printed 0th/);
+  assert.throws(() => parseCatalog([CATALOG_D6].map(parseProbeLine)), /expected one \[catalog\] line/);
+});
+
+test('a table is checked for its keys, and for its values when the catalog carries them', () => {
+  assert.deepEqual(tableFailures('T', TWO_DIE_CATALOG, { D6: 6, D100: 100 }, (die) => die.outcomes), []);
+  assert.deepEqual(tableFailures('T', TWO_DIE_CATALOG, { D6: 6, D100: 10 }, (die) => die.outcomes),
+    ['T[D100] is 10, the catalog says 100']);
+  assert.deepEqual(tableFailures('T', TWO_DIE_CATALOG, { D6: 6 }), ['T has no entry for D100']);
+  assert.deepEqual(tableFailures('T', TWO_DIE_CATALOG, { D6: 6, D100: 100, D30: 30 }),
+    ['T names D30, which is not in the catalog']);
+});
+
+test('a run that would roll half a die, or more bodies than fit, is a failure', () => {
+  assert.deepEqual(bodyCountFailures('S', TWO_DIE_CATALOG, [{ die: 'D6', dice: 3 }, { die: 'D100', dice: 2 }]), []);
+  assert.deepEqual(bodyCountFailures('S', TWO_DIE_CATALOG, [{ die: 'D100', dice: 3 }]),
+    ['S rolls 3 D100 bodies, not a whole number of dice of 2']);
+  assert.deepEqual(bodyCountFailures('S', TWO_DIE_CATALOG, [{ die: 'D6', dice: 4 }]),
+    ["S rolls 4 D6 bodies, more than the tray's 3"]);
+  assert.deepEqual(bodyCountFailures('S', TWO_DIE_CATALOG, [{ die: 'D30', dice: 1 }]),
+    ['S rolls D30, which is not in the catalog']);
 });
