@@ -121,7 +121,11 @@ void drawScene(LGFX_Sprite& canvas, const DieShape& shape, size_t frame) {
     const int64_t cleared = esp_timer_get_time();
     for (uint8_t die = 0; die < DIE_COUNT; die++) {
         const Rotation orientation = rotationAbout(SPIN_AXES[die], SPIN_RAD_PER_FRAME[die] * frame);
-        viewDie(shape, SHAPE_IN_PIXELS, orientation, DIE_CENTRES_PX[die], DIE_COLORS[die], LIGHTING, NUMERAL_MIN_FACING, views[die]);
+        // Plain numerals: this probe measures what a frame of three D20s costs, and a D20's
+        // numerals mean themselves. A percentile body would label the same geometry differently
+        // without changing a single drawn pixel's cost (ADR-0034).
+        viewDie(shape, Numbering::Plain, SHAPE_IN_PIXELS, orientation, DIE_CENTRES_PX[die], DIE_COLORS[die], LIGHTING,
+                NUMERAL_MIN_FACING, views[die]);
     }
     const int64_t posed = esp_timer_get_time();
     for (const DieView& view : views) drawDieFaces(canvas, view);

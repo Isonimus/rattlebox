@@ -115,6 +115,31 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  envs:
+    # Every env no other job builds: the probes and the skeletons. Slice 0035 broke three of them
+    # for a commit because nothing compiled them (LEDGER, slice 0035).
+    name: probe and skeleton envs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The skeleton and probe envs stamp `git describe` into the image as the firmware does.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .platformio
+            ~/.cache/pip
+          key: pio-envs-${{ hashFiles('platformio.ini', 'requirements.txt') }}
+      - run: pip install -r requirements.txt
+      - run: npm run build:envs
+
   cppcheck:
     name: cppcheck
     # Pinned: a newer image can bring a cppcheck that renames checks or raises severities, which
