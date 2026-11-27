@@ -108,14 +108,12 @@ void viewDie(const DieShape& shape, Numbering numbering, float pxPerUnit, const 
         // corner a printed D4 writes on (slice 0032).
         face.numeralX = toPixel(sumX / source.cornerCount);
         face.numeralY = toPixel(sumY / source.cornerCount);
-        // Only the faces that will be drawn are formatted. Labelling every face instead cost about
-        // 400 us a frame of work on the StickC, 5 to 9 percent across every die type and measured
-        // on the device, because snprintf runs about 15 us there and most faces of a die show no
-        // numeral at all: a D20 square to the camera draws one of twenty (slice 0035).
         const uint8_t numeral = readAtApex ? shape.faces[resting].numeral : source.numeral;
         face.showsNumeral = readAtApex ? faceHasCorner(source, apex) : facing >= numeralMinFacing;
         // An empty label on a face that shows none, so nothing reads an uninitialised string.
-        face.numeralText[0] = '\0';
-        if (face.showsNumeral) numeralLabel(numbering, numeral, face.numeralText, sizeof face.numeralText);
+        // Only the faces that will be drawn are labelled, because a face that shows no numeral has
+        // no label rather than an unused one. This used to format the text here, which cost 120 us
+        // of a StickC frame; numeralLabel now returns a constant and there is nothing to format.
+        face.numeralText = face.showsNumeral ? numeralLabel(numbering, numeral) : "";
     }
 }

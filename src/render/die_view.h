@@ -43,8 +43,11 @@ struct ScreenFace {
      * @brief What the face shows, already resolved through the die's numbering: "7" for a plain
      * die, "00" to "90" for a percentile tens body. Text and not a number because "00" is two
      * characters and not zero (ADR-0034).
+     *
+     * It points at a label that outlives the view, never at a buffer of its own, and is "" on a
+     * face that shows no numeral. Copying the characters in meant formatting them every frame.
      */
-    char     numeralText[NUMERAL_LABEL_MAX_CHARS + 1];
+    const char* numeralText;
 };
 
 /** @brief The front faces of one die, in no particular order: a convex die's front faces never overlap. */

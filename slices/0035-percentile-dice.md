@@ -222,3 +222,39 @@ checked it, so a later row of 11 faces thrown two at a time would have written p
 finding that the `SECONDARY` and `UP` bounds are inert today was accepted as fact and rejected as a
 change, with the reason written at the site: removing them would stick the count at 2 on a type
 holding two dice instead of cycling it to 1.
+
+## Amendment — 2026-11-27: the frame cost was the formatting after all
+
+`## As built` above left the StickC's 319 to 421 us unexplained and offered instruction-cache
+layout as a possibility it declined to claim. That was the right caution about the wrong residual:
+the cost was the per-face formatting, and the reasoning that dismissed it was faulty.
+
+The error was in the arithmetic, not the measurement. Guarding the format call so only drawn faces
+are labelled was worth 132 us on the D20, and that saving was read as the whole of what formatting
+could cost. It was only the part the guard removed. The calls that remained, one per *visible*
+face, were still there, and they are the larger half.
+
+The render probe localises it in one run, which is why it was the first step rather than another
+A/B of the whole image. Medians and 95th percentiles, blocking, edge 12, three D20s on one StickC
+in one session:
+
+| Build | geometry | numerals | other phases |
+|---|---|---|---|
+| e8090a6, before the d% | 201 / 205 | 289 / 342 | unchanged |
+| slice 0035 as shipped | 329 / 367 | 288 / 344 | unchanged within 21 us |
+| 0035 with the format call stubbed out | 209 / 214 | n/a, the stub drew one glyph | unchanged |
+| labels read from a table | 213 / 218 | 288 / 340 | unchanged |
+
+Every phase but `geometry` is flat across all four, which is what rules out cache layout: a layout
+effect would not confine itself to one phase and then follow the format call when it moved. The
+stub puts a floor under the hypothesis at 209, and the table lands 4 us above it.
+
+So `numeralLabel` now returns a pointer to a constant instead of formatting into a caller's
+buffer, `ScreenFace::numeralText` and `BandResult::text` hold that pointer, and 116 of the 128 us
+come back. The 12 us that remain are what a d% genuinely added: a numbering to pass and a branch
+to take. `drawString` against `drawNumber` stays ruled out, and this amendment does not disturb
+that: `numerals` is 288 / 340 before the d% and 288 / 340 after the fix.
+
+A label now has to outlive the call that returned it, because the renderer holds one per face
+while it labels the rest. `test/test_die_catalog` checks that, and an implementation that formatted
+into one shared buffer was shown to fail it.

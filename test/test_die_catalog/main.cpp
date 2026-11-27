@@ -104,14 +104,32 @@ void test_every_types_bodies_cover_its_outcomes_exactly_once() {
 
 // Slice 0035. A label is what the player reads off the face, so it must fit the buffer the
 // renderer and the band size from, and no two faces of one body may read alike.
+// A label outlives the call that returned it, because the renderer holds one for every face of a
+// die while it labels the rest. An implementation that formatted into one shared buffer would pass
+// every test that reads a single label and then draw every face of a die alike.
+void test_a_label_outlives_the_calls_that_follow_it() {
+    const char* one = numeralLabel(Numbering::Plain, 1);
+    const char* twenty = numeralLabel(Numbering::Plain, DIE_MAX_FACES);
+    const char* lowestTens = numeralLabel(Numbering::PercentileTens, 1);
+    const char* highestTens = numeralLabel(Numbering::PercentileTens, 10);
+    const char* lowestUnits = numeralLabel(Numbering::PercentileUnits, 1);
+    // Every label is read after every call has been made, so a shared buffer shows up here.
+    TEST_ASSERT_EQUAL_STRING("1", one);
+    TEST_ASSERT_EQUAL_STRING("20", twenty);
+    TEST_ASSERT_EQUAL_STRING("00", lowestTens);
+    TEST_ASSERT_EQUAL_STRING("90", highestTens);
+    TEST_ASSERT_EQUAL_STRING("0", lowestUnits);
+}
+
 void test_every_bodys_faces_carry_labels_that_fit_and_do_not_repeat() {
     for (uint8_t index = 0; index < DIE_TYPE_COUNT; index++) {
         const DieKind& kind = dieKind(static_cast<DieType>(index));
         for (uint8_t body = 0; body < kind.bodiesPerRoll; body++) {
-            char labels[DIE_MAX_FACES][NUMERAL_LABEL_MAX_CHARS + 1];
+            // Pointers, not copies: holding every face's label at once is what the renderer does,
+            // and an implementation that formatted into one shared buffer would fail here.
+            const char* labels[DIE_MAX_FACES];
             for (uint8_t face = 0; face < kind.shape.faceCount; face++) {
-                numeralLabel(bodyNumbering(kind, body), kind.shape.faces[face].numeral, labels[face],
-                             sizeof labels[face]);
+                labels[face] = numeralLabel(bodyNumbering(kind, body), kind.shape.faces[face].numeral);
                 TEST_ASSERT_LESS_OR_EQUAL_UINT(NUMERAL_LABEL_MAX_CHARS, strlen(labels[face]));
                 for (uint8_t earlier = 0; earlier < face; earlier++) {
                     TEST_ASSERT_NOT_EQUAL(0, strcmp(labels[earlier], labels[face]));
@@ -160,6 +178,7 @@ int main() {
     RUN_TEST(test_every_type_throws_a_countable_number_of_bodies_that_fits_the_tray);
     RUN_TEST(test_a_bodys_numbering_repeats_with_the_dice_it_belongs_to);
     RUN_TEST(test_every_types_bodies_cover_its_outcomes_exactly_once);
+    RUN_TEST(test_a_label_outlives_the_calls_that_follow_it);
     RUN_TEST(test_every_bodys_faces_carry_labels_that_fit_and_do_not_repeat);
     RUN_TEST(test_no_two_types_share_a_name);
     RUN_TEST(test_a_name_fits_the_width_the_name_buffers_are_sized_from);

@@ -41,11 +41,17 @@ enum class Numbering : uint8_t {
 };
 
 /**
- * @brief Writes the label @p numeral shows under @p numbering into @p out, of @p size bytes.
+ * @brief The label @p numeral shows under @p numbering, as a string that outlives every caller.
  *
  * A numeral outside 1 to 10 under a percentile numbering, or 0 under any, aborts: the shapes
  * guarantee 1 to N, so anything else is a corrupted shape and not a label to guess at.
+ *
+ * It returns a constant rather than formatting into a caller's buffer because the renderer asks
+ * for one per visible face, per die, per frame. Formatting them cost 120 us of a StickC frame,
+ * measured with the render probe across slice 0035: its geometry phase went from 201 us to 329,
+ * and back to 209 with the formatting removed. A label is a pure function of a numbering and a
+ * numeral over at most `DIE_MAX_FACES` values, so there is nothing to compute at all.
  */
-void numeralLabel(Numbering numbering, uint8_t numeral, char* out, uint8_t size);
+const char* numeralLabel(Numbering numbering, uint8_t numeral);
 
 #endif // DIE_NUMBERING_H

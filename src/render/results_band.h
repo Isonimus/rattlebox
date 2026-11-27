@@ -23,7 +23,8 @@ struct BandSegment {
  * "70" for a percentile tens body (ADR-0034).
  */
 struct BandResult {
-    char text[NUMERAL_LABEL_MAX_CHARS + 1];
+    /** @brief A label that outlives the band, as `numeralLabel` returns it. */
+    const char* text;
 };
 
 /** @brief The band's text, left to right. */
