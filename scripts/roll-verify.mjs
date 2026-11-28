@@ -238,9 +238,16 @@ export function summaryMarkdown(env, types) {
   return `${lines.join('\n')}\n`;
 }
 
-/** The board's parsed lines as they arrive, and promises for the next line of a kind. */
+/**
+ * The board's parsed lines as they arrive, and promises for the next line of a kind.
+ *
+ * `parse` is handed in because another check's firmware prints lines this one has never heard of:
+ * a parser fixed here would read them all as `other` and leave that check waiting for a line it
+ * was sent (slice 0037).
+ */
 export class LineWaiters {
-  constructor() {
+  constructor(parse = parseRollLine) {
+    this.parse = parse;
     this.parsed = [];
     this.waiters = [];
   }
@@ -248,7 +255,7 @@ export class LineWaiters {
   take(line) {
     let entry;
     try {
-      entry = parseRollLine(line);
+      entry = this.parse(line);
     } catch (error) {
       this.fail(error);
       return;
@@ -319,8 +326,8 @@ export const ATTACH_SETTLE_MS = 500;
 
 /** One serial session: a monitor process whose lines feed `waiters`, and a way to send the board bytes. */
 export class Session {
-  constructor(port, { reset }) {
-    this.waiters = new LineWaiters();
+  constructor(port, { reset, parse = parseRollLine }) {
+    this.waiters = new LineWaiters(parse);
     this.closing = false;
     const args = ['scripts/serial_reset_monitor.py', '--port', port, '--send-stdin', ...(reset ? [] : ['--no-reset'])];
     this.monitor = spawn('python3', args, { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -342,8 +349,13 @@ export class Session {
     return this.waiters.next(kinds, timeoutMs, what);
   }
 
+  /** Write bytes to the board, which reads every byte waiting on its port each frame. */
+  send(bytes) {
+    this.monitor.stdin.write(bytes);
+  }
+
   roll(command) {
-    return awaitRoll(this.waiters, (byte) => this.monitor.stdin.write(byte), command, ROLL_TIMEOUT_MS);
+    return awaitRoll(this.waiters, (byte) => this.send(byte), command, ROLL_TIMEOUT_MS);
   }
 
   async close() {

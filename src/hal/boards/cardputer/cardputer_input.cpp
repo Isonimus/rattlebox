@@ -14,6 +14,9 @@ static constexpr uint8_t CFG_KEY_EVENT_IRQ   = 0x01;
 static constexpr uint8_t INT_STAT_KEY_EVENT  = 0x01;
 static constexpr uint8_t INT_STAT_ALL        = 0x1F;
 static constexpr uint8_t EVENT_COUNT_MASK    = 0x0F;
+// The queue is sized for a whole drain, so what the mask can report and what the keyboard can
+// hold must agree: a wider counter here would let one drain overflow it (slice 0037).
+static_assert(EVENT_COUNT_MASK == KEY_EVENTS_PER_DRAIN, "the keyboard's queue is sized for this");
 
 // The ADV wires rows 0-6 and columns 0-7; columns 8-9 stay plain GPIO.
 static constexpr uint8_t MATRIX_ROW_MASK     = 0x7F;
@@ -65,10 +68,12 @@ void CardputerInput::update() {
 
     // Long presses complete while the key is still held, so the gestures need
     // a tick every frame, not only when the controller reports an event.
-    uint32_t now = millis();
-    for (KeyBinding& binding : _bindings) {
-        latch(binding.gesture.update(binding.held, now));
-    }
+    _keyboard.tick(millis());
+
+    const uint8_t dropped = _keyboard.takeDropped();
+    // The queue holds a whole drain, so a drop means nobody is reading it: keystrokes the player
+    // made and never saw. Say so rather than lose them in silence.
+    if (dropped > 0) Serial.printf("[kbd] %u input(s) dropped, unread\n", static_cast<unsigned>(dropped));
 }
 
 void CardputerInput::drainKeyEvents() {
@@ -92,7 +97,7 @@ void CardputerInput::drainKeyEvents() {
         }
         Serial.printf("[kbd] %s row %u col %u\n",
                       event.pressed ? "down" : "up", event.key.row, event.key.col);
-        applyKeyEvent(event);
+        _keyboard.take(event, millis());
     }
 
     // Write-1-to-clear; the controller re-asserts INT if more events arrived meanwhile.
@@ -101,26 +106,3 @@ void CardputerInput::drainKeyEvents() {
     }
 }
 
-void CardputerInput::applyKeyEvent(const CardputerKeyEvent& event) {
-    // A tap can queue its press and release within one frame; feeding each
-    // event straight to the gesture keeps that tap from being lost.
-    uint32_t now = millis();
-    for (KeyBinding& binding : _bindings) {
-        if (event.key == binding.key) {
-            binding.held = event.pressed;
-            latch(binding.gesture.update(binding.held, now));
-            return;
-        }
-    }
-}
-
-void CardputerInput::latch(InputAction action) {
-    // Keep an unconsumed action; getAction() runs slower than update().
-    if (_pendingAction == InputAction::NONE) _pendingAction = action;
-}
-
-InputAction CardputerInput::getAction() {
-    InputAction act = _pendingAction;
-    _pendingAction = InputAction::NONE;
-    return act;
-}

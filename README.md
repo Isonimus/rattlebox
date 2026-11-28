@@ -83,6 +83,13 @@ and together they are 1 to 100, where 00 with 0 is 100. Because it is two dice, 
 the tray, so the count buttons stay at one while it is chosen and the strip reads like
 `D100 70 3 = 73`.
 
+On the Cardputer you can also **type what to roll**: `3d6`, `3d6+2`, `1d20-1`, `d100`. The strip
+above the tray becomes the field you type into, and `Enter` throws it. An expression the tray
+cannot throw is refused rather than rolled as something else, and the strip says why: the tray
+holds three dice, so `4d6` is refused, and a d% is two of them, so `2d100` is. The modifier is a
+single digit, because that is what the strip has room for: `3d20+9` reads
+`D20+9 20 20 20 = 69` and fills it.
+
 ## Controls
 
 | What it does | Cardputer ADV | M5StickC Plus 2 |
@@ -91,8 +98,13 @@ the tray, so the count buttons stay at one while it is chosen and the strip read
 | Next die type: D4, D6, D8, D10, D12, D20, D100, then D4 again | `Enter` | Button A (front) |
 | Cycle one, two, three dice (the d% stays at one) | `Backspace` | Button B (side) |
 | One die more / one fewer | `;` (up) / `.` (down) | |
+| Type an expression | the digits, `d`, `-` and `Shift`+`=` for `+` | |
+| Throw what you typed | `Enter` | |
+| Delete a character, and leave the field when it empties | `Backspace` | |
 
-Changing the dice throws the new set at once.
+Changing the dice throws the new set at once. While you are typing, `Enter` and `Backspace` belong
+to the field; empty it and they go back to what the table above says. The StickC has no keyboard,
+so it has no field: its buttons are the whole of its controls.
 
 ## Supported boards
 
@@ -160,9 +172,9 @@ cppcheck, CodeQL, and the decision-record checks. Pushing a `v*` tag builds and 
 
 ## Roadmap
 
-v0.1 is the dice tray described above. v0.2 adds the D8, the D10, the D12, the D4 and percentile
-dice, then dice notation typed on the Cardputer (`3d6+2`, `2d20kh1`), presets, roll history and a
-hidden roll. The
+v0.1 is the dice tray described above. v0.2 adds the D8, the D10, the D12, the D4, percentile
+dice and the dice notation above, then advantage and keep-or-drop expressions (`2d20kh1`,
+`4d6dl1`), presets, roll history and a hidden roll. The
 plan, and what is deliberately not planned, is in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Contributing

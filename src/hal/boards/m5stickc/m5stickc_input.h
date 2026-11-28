@@ -16,6 +16,14 @@ public:
     const char* description() const override { return "buttons A (G37) and B (G39)"; }
     void update() override;
     InputAction getAction() override;
+    /**
+     * @brief Two buttons spell no characters, so no key on this board can type (ADR-0036).
+     *
+     * The expression entry is still reachable here through the serial port, which types the same
+     * characters a keyboard would (`src/app/serial_commands.h`), and that is how
+     * `scripts/notation-verify.mjs` drives it on this board. Nothing a player holds can open it.
+     */
+    char getTypedCharacter() override { return NO_CHARACTER; }
 
 private:
     static constexpr int BTN_A_PIN = 37;

@@ -38,6 +38,20 @@ decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
   result. The device now tells the difference, and the wait fell with it: a roll of three dice
   takes about 0.33 s for D6 against 0.37 s in v0.1.1, 0.37 s for D8, 0.47 s for D10 and 0.48 s
   for D20 against 0.67 s. A result still never changes once it is shown.
+- **Type what to roll, on the Cardputer.** `3d6`, `3d6+2`, `1d20-1` and `d100` can be typed
+  straight onto the strip above the tray, which becomes the field you type into, and `Enter`
+  throws them. The digits, `d` and `-` are the keys they are printed on, and `+` is `Shift` and
+  `=`. `Backspace` deletes a character and leaves the field when it empties, after which both keys
+  mean what they always did. A roll with a modifier shows it: `3d6+2` reads `D6+2 4 2 6 = 14`, and
+  a single die now shows its total too, because 17 and 19 are different numbers. Changing the dice
+  with the buttons keeps the modifier you typed.
+- **An expression the tray cannot throw is refused, not rolled as something else.** The tray holds
+  three dice, so `4d6` is refused; a d% is two of them, so `2d100` is; and `1d7` is a die that does
+  not exist. The strip says which, and what you typed is still there to correct. The modifier is a
+  single digit, because that is what the strip has room for. Advantage and keep-or-drop
+  expressions, `2d20kh1` and `4d6dl1`, are not in this release.
+- The M5StickC Plus 2 has no keyboard, so it has no field: its two buttons are the whole of its
+  controls, exactly as before.
 
 ## v0.1.1 (2026-11-23)
 

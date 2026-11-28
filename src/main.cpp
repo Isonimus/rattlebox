@@ -21,6 +21,7 @@
 #include "render/tray_layout.h"
 #include "roll/dice_choice.h"
 #include "roll/dice_roll.h"
+#include "roll/expression_entry.h"
 #include "roll/shake_roll.h"
 #include "sound/clack_loudness.h"
 #include "sound/hit_finder.h"
@@ -126,6 +127,9 @@ bool displayUp = false;
 const Lighting LIGHTING{normalized(Vec3{-0.3f, 0.4f, 1.0f}), AMBIENT};
 
 DiceChoice choice = BOOT_CHOICE;
+// The band is the entry field (ADR-0036). It is closed until something is typed, and on a board
+// with no keyboard nothing ever is.
+ExpressionEntry entry = emptyEntry();
 World world{};
 DieResult results[MAX_DICE];
 ShakeRoll shakeRoll(PRODUCT_KICK);
@@ -240,7 +244,53 @@ void recordImuSample(uint32_t timestampUs) {
     costs.imuSamples++;
 }
 
+/** @brief Appends @p character to the expression, or says why it was not taken. */
+void typeInto(char character) {
+    if (typeCharacter(entry, character)) return;
+    // The only way a character the grammar accepts is refused is a field already full, and the
+    // player sees the text stop growing rather than a character land somewhere unexpected.
+    Serial.printf("[roll] typed full: %s\n", entry.text);
+}
+
+/**
+ * @brief What @p action means while an expression is being typed (ADR-0036).
+ *
+ * Enter accepts it and Backspace deletes a character, which is how the keys the Cardputer binds
+ * do double duty; the count and type controls are swallowed, because a key that changed the
+ * choice half way through an expression would fight what is being typed.
+ *
+ * @return whether the field took the action, so a closed field leaves every control as it was and
+ * a board with two buttons behaves exactly as it did before this slice.
+ */
+bool entryTook(InputAction action) {
+    if (!entry.open) return false;
+    if (action == InputAction::PRIMARY) {
+        // submitEntry clears the field on acceptance, so the expression is read out of it first.
+        char typed[EXPRESSION_MAX_CHARS + 1];
+        snprintf(typed, sizeof typed, "%s", entry.text);
+        const ParsedNotation parsed = submitEntry(entry);
+        if (!parsed.accepted) {
+            Serial.printf("[roll] typed %s refused: %s\n", typed, parsed.reason);
+            return true;
+        }
+        choice = parsed.choice;
+        Serial.printf("[roll] typed %s accepted %s x%u mod=%+d\n", typed, dieTypeName(choice.type),
+                      static_cast<unsigned>(choice.count), static_cast<int>(choice.modifier));
+        launch();
+        return true;
+    }
+    if (action == InputAction::SECONDARY) {
+        backspaceEntry(entry);
+        return true;
+    }
+    // Everything else, the holds included, does nothing while the field is open. A hold could
+    // reasonably clear the whole field, and deliberately does not yet: it would be a control the
+    // StickC has no way to offer and nothing on screen explains.
+    return true;
+}
+
 void press(InputAction action) {
+    if (entryTook(action)) return;
     const ChoiceChange change = applyAction(choice, action);
     if (!change.changed) return;
     choice = change.choice;
@@ -248,10 +298,12 @@ void press(InputAction action) {
 }
 
 bool takeCommand(int byte) {
-    switch (serialCommandFor(byte)) {
+    const SerialRequest request = serialCommandFor(byte);
+    switch (request.command) {
         case SerialCommand::Roll: launch(); return true;
         case SerialCommand::PressPrimary: press(InputAction::PRIMARY); return true;
         case SerialCommand::PressSecondary: press(InputAction::SECONDARY); return true;
+        case SerialCommand::Type: typeInto(request.character); return true;
         case SerialCommand::None: break;
     }
     return false;
@@ -325,15 +377,23 @@ void drawFrame(LGFX_Sprite& canvas) {
     drawDice(canvas);
     const BandColors colors{packed(BAND_COLOR), packed(BAND_TEXT_COLOR), packed(NUMERAL_COLOR),
                             {packed(DIE_COLORS[0]), packed(DIE_COLORS[1]), packed(DIE_COLORS[2])}};
-    // The strip is the band's own (ADR-0016): the type while the dice fly, the results once they lock.
-    const char* typeName = dieTypeName(choice.type);
+    // The strip is the band's own (ADR-0016): the expression while one is being typed (ADR-0036),
+    // then the choice while the dice fly, and the results once they lock.
+    if (entry.open) {
+        // The field wins while it is open, even over a roll that locked meanwhile: a shake mid
+        // expression must not eat what was typed. Nothing is lost either way, because the band is
+        // built from the results every frame, so closing the field shows the roll that landed
+        // behind it (ADR-0009, ADR-0036).
+        drawResultsBand(canvas, entryBand(entry), colors);
+        return;
+    }
     if (!rollReported || !everyDieLocked(results, world.dieCount)) {
-        drawResultsBand(canvas, typeBand(typeName), colors);
+        drawResultsBand(canvas, choiceBand(choice.type, choice.modifier), colors);
         return;
     }
     uint8_t numerals[MAX_DICE];
     for (uint8_t body = 0; body < world.dieCount; body++) numerals[body] = results[body].numeral;
-    drawResultsBand(canvas, lockedBand(choice.type, numerals, world.dieCount), colors);
+    drawResultsBand(canvas, lockedBand(choice.type, choice.modifier, numerals, world.dieCount), colors);
 }
 
 /** @brief Start sending @p canvas to the panel by DMA and return without waiting for it. */
@@ -449,7 +509,18 @@ void loop() {
     // The canvas last pushed holds the whole frame on the panel; nothing draws into it this frame.
     serviceScreenCapture(*sending, Serial, takeCommand);
     hal.input.update();
-    press(hal.input.getAction());
+    // Characters and actions are one stream in the order the keys were pressed, so a Backspace
+    // typed between two characters deletes the first and not the second. Draining both until
+    // neither has anything left keeps that order even when a frame ran long enough to batch
+    // several keypresses, which a screen capture does (slice 0037).
+    for (;;) {
+        for (char typed = hal.input.getTypedCharacter(); typed != NO_CHARACTER; typed = hal.input.getTypedCharacter()) {
+            typeInto(typed);
+        }
+        const InputAction action = hal.input.getAction();
+        if (action == InputAction::NONE) break;
+        press(action);
+    }
 
     // The IMU is read before each step as well as in the waits, so each step moves the dice by the
     // latest reading, as the fairness test's replay does.

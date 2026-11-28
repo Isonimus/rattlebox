@@ -5,14 +5,23 @@
 #include "../hal/input_hal.h"
 #include "die_catalog.h"
 
-/** @brief What the next roll throws: one type, one to MAX_DICE dice (docs/roadmap.md, v0.1). */
+/**
+ * @brief What the next roll throws: one type, one to MAX_DICE dice (docs/roadmap.md, v0.1), and a
+ * constant added to the total.
+ *
+ * The modifier is part of the choice and not of the expression that set it, because the buttons
+ * can step the type and the count without touching it and the band shows it either way
+ * (ADR-0036). Only a typed expression can set it, so it is zero on a board with no keyboard.
+ */
 struct DiceChoice {
     DieType type;
     uint8_t count;
+    /** @brief Added to the roll's total, -MODIFIER_LIMIT to MODIFIER_LIMIT (ADR-0036). */
+    int8_t  modifier;
 };
 
-/** @brief One D20 until NVS presets arrive in v0.2. */
-constexpr DiceChoice BOOT_CHOICE{DieType::D20, 1};
+/** @brief One D20 and no modifier until NVS presets arrive in v0.2. */
+constexpr DiceChoice BOOT_CHOICE{DieType::D20, 1, 0};
 
 struct ChoiceChange {
     DiceChoice choice;
@@ -27,6 +36,9 @@ struct ChoiceChange {
  * add or take one die, stopping at the ends. A type that throws more than one body per die holds
  * fewer dice, and stepping onto it brings the count down to what fits (ADR-0034). Anything else
  * leaves the choice as it was.
+ *
+ * The modifier is carried through untouched: no action can express one, and the band shows it, so
+ * changing the die keeps the bonus the player typed rather than silently dropping it (ADR-0036).
  */
 ChoiceChange applyAction(DiceChoice choice, InputAction action);
 

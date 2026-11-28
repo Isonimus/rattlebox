@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 namespace {
 
@@ -13,22 +14,25 @@ void addSegment(ResultsBand& band, uint8_t die, const char* text) {
 
 } // namespace
 
-ResultsBand typeBand(const char* typeName) {
+ResultsBand messageBand(const char* text) {
+    // A message the band cannot draw is a message the player never reads, and one cut short to
+    // fit would say something other than what it was written to say (ADR-0036).
+    if (strlen(text) > BAND_MESSAGE_MAX_CHARS) abort();
     ResultsBand band{};
-    BandSegment& type = band.segments[band.segmentCount++];
-    snprintf(type.text, sizeof type.text, "%s", typeName);
-    type.die = BAND_NO_DIE;
+    addSegment(band, BAND_NO_DIE, text);
     return band;
 }
 
-ResultsBand resultsBand(const char* typeName, const BandResult* bodies, uint8_t bodyCount, unsigned total) {
+ResultsBand typeBand(const char* typeName) { return messageBand(typeName); }
+
+ResultsBand resultsBand(const char* typeName, const BandResult* bodies, uint8_t bodyCount, BandTotal total) {
     // More bodies than the band has room for is a programming error, not a band to quietly cut short.
     if (bodyCount == 0 || bodyCount > MAX_DICE) abort();
     ResultsBand band = typeBand(typeName);
     for (uint8_t body = 0; body < bodyCount; body++) addSegment(band, body, bodies[body].text);
-    if (bodyCount > 1) {
+    if (total.shown) {
         char text[BAND_SEGMENT_CAPACITY];
-        snprintf(text, sizeof text, "= %u", total);
+        snprintf(text, sizeof text, "= %d", total.value);
         addSegment(band, BAND_NO_DIE, text);
     }
     return band;

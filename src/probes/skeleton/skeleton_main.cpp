@@ -100,6 +100,13 @@ const char* actionName(InputAction action) {
 
 void pollInput() {
     hal.input.update();
+    // Characters and actions share one ordered queue (slice 0037). This probe reports actions, but
+    // it reads the characters too and says what they were: a queue nobody drains fills up and the
+    // driver then reports dropped input, which would read as a defect in a probe whose whole job
+    // is to show what a key does.
+    for (char typed = hal.input.getTypedCharacter(); typed != NO_CHARACTER; typed = hal.input.getTypedCharacter()) {
+        Serial.printf("[input] typed %c\n", typed);
+    }
     const char* name = actionName(hal.input.getAction());
     if (name != nullptr) Serial.printf("[input] %s\n", name);
 }

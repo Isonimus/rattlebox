@@ -12,6 +12,7 @@
     "verify:roll": "node scripts/roll-verify.mjs",
     "verify:shake": "node scripts/shake-verify.mjs",
     "verify:sound": "node scripts/sound-verify.mjs",
+    "verify:notation": "node scripts/notation-verify.mjs",
     "release": "node scripts/release.mjs"
   }
 }
