@@ -25,6 +25,10 @@ enum class SerialCommand : uint8_t {
      * does, which is what lets a verify script type an expression with nobody at the keyboard.
      */
     Type,
+    /** @brief 'H': what LONG_PRIMARY does, recall the next saved preset and roll it (ADR-0038). */
+    HoldPrimary,
+    /** @brief 'K': what LONG_SECONDARY does, keep the current choice in the next preset slot. */
+    HoldSecondary,
 };
 
 /** @brief A command and, for `Type`, the character it carries; `NO_CHARACTER` otherwise. */

@@ -1,4 +1,5 @@
 #include "../../hal.h"
+#include "../../nvs_storage.h"
 #include "cardputer_audio.h"
 #include "bmi270.h"
 #include "cardputer_display.h"
@@ -10,9 +11,10 @@ static CardputerInput   input;
 static Bmi270           imu;
 static CardputerPower   power;
 static CardputerAudio   audio;
+static NvsStorage       storage;
 
 static HardwareHAL hal {
-    "Cardputer ADV", display, input, imu, power, audio
+    "Cardputer ADV", display, input, imu, power, audio, storage
 };
 
 HardwareHAL& getHAL() {

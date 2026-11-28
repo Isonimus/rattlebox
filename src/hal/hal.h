@@ -6,6 +6,7 @@
 #include "input_hal.h"
 #include "imu_hal.h"
 #include "power_hal.h"
+#include "storage_hal.h"
 
 /**
  * @brief Composite HAL — groups all hardware interfaces into one handle.
@@ -19,6 +20,7 @@ struct HardwareHAL {
     ImuHAL&     imu;
     PowerHAL&   power;
     AudioHAL&   audio;
+    StorageHAL& storage;
 };
 
 /**

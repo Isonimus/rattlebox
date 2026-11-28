@@ -76,7 +76,13 @@ board is captured from shake to locked result.
 - **Dice notation on the Cardputer**: `3d6+2`, `2d20kh1` (advantage), `4d6dl1`. Typing an
   expression is the one thing a keyboard device does better than a phone. The StickC
   cycles saved presets instead.
-- **Presets and roll history**, stored in NVS.
+- **Presets and roll history**, stored in NVS. The remembered roll and four presets shipped: the
+  record is one versioned blob validated field by field on the way in, written on every change
+  because ESP-IDF skips a write whose value has not changed, and an empty store is a normal state
+  because a launcher can format the partition the firmware shares with it (ADR-0038, slice 0039).
+  The two holds, inert until then, became recall and save. Roll history is still to come: it is an
+  append log rather than one record, and nothing on a 240x135 screen holding a tray and a strip has
+  room to show it yet.
 - **Hidden roll**, for a game master.
 
 ## v0.3 and later

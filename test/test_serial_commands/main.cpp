@@ -13,7 +13,8 @@
 
 // The host's one-byte commands to the product (slice 0011), beside the screen capture's 'S'. Since
 // slice 0037 a character of dice notation is one too, so a script can type an expression where a
-// player would (ADR-0036).
+// player would (ADR-0036), and since slice 0039 the two holds have bytes of their own, because a
+// host cannot hold a button down over a serial port (ADR-0038).
 
 static void assertCommand(SerialCommand expected, int byte) {
     const SerialRequest request = serialCommandFor(byte);
@@ -31,6 +32,8 @@ void test_each_command_byte() {
     assertCommand(SerialCommand::Roll, 'R');
     assertCommand(SerialCommand::PressPrimary, 'T');
     assertCommand(SerialCommand::PressSecondary, 'C');
+    assertCommand(SerialCommand::HoldPrimary, 'H');
+    assertCommand(SerialCommand::HoldSecondary, 'K');
 }
 
 // Every character the grammar accepts arrives as itself, so the host types what the player types.
@@ -41,7 +44,7 @@ void test_every_notation_character_is_typed() {
 void test_other_bytes_are_no_command() {
     // 'S' is the screen capture's, and a letter that is neither a command nor notation is not a
     // roll: a terminal's stray typing changes nothing.
-    const int others[] = {'S', 'r', 't', 'c', 'k', ' ', '=', '\n', 0, 0xFF, -1};
+    const int others[] = {'S', 'r', 't', 'c', 'k', 'h', ' ', '=', '\n', 0, 0xFF, -1};
     for (int byte : others) assertCommand(SerialCommand::None, byte);
 }
 

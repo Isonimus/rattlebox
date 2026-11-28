@@ -22,6 +22,7 @@
 #include "roll/dice_choice.h"
 #include "roll/dice_roll.h"
 #include "roll/expression_entry.h"
+#include "roll/preset_store.h"
 #include "roll/shake_roll.h"
 #include "sound/clack_loudness.h"
 #include "sound/hit_finder.h"
@@ -66,6 +67,12 @@ constexpr Rgb BAND_TEXT_COLOR{255, 255, 255};
 constexpr float AMBIENT = 0.35f;
 // The render probe's bound, 60° from the camera, which ADR-0007 left to this slice to settle.
 constexpr float NUMERAL_MIN_FACING = 0.5f;
+
+// How long a save or a recall holds the band before it goes back to what it otherwise says. The
+// holds are the only controls nothing on screen advertises, so the message is the player's whole
+// confirmation; it is short enough that the dice a recall threw are still moving when it clears
+// (ADR-0038).
+constexpr uint32_t PRESET_MESSAGE_MS = 1500;
 
 constexpr int TEXT_LEFT_PX = 6;
 constexpr int TEXT_TOP_PX = 8;
@@ -130,6 +137,19 @@ DiceChoice choice = BOOT_CHOICE;
 // The band is the entry field (ADR-0036). It is closed until something is typed, and on a board
 // with no keyboard nothing ever is.
 ExpressionEntry entry = emptyEntry();
+// What the device remembers across a power cycle (ADR-0038). It starts empty, and boot replaces
+// it with the stored record when there is a valid one.
+PresetRecord presets = emptyPresets();
+// The band a save or a recall put up, and when it stops holding the band. A bool rather than a
+// comparison against zero, so millis() rolling over after 49 days cannot revive an old message.
+ResultsBand presetBand{};
+bool        presetBandShown = false;
+uint32_t    presetBandUntilMs = 0;
+// Cleared when a read fails, which is the one case where the store's contents are unknown. Writing
+// then would destroy a record that is there and could not be read, which a transient error makes a
+// real possibility; an empty store and a refused record are both known states and stay writable.
+bool        presetsWritable = true;
+
 World world{};
 DieResult results[MAX_DICE];
 ShakeRoll shakeRoll(PRODUCT_KICK);
@@ -252,6 +272,122 @@ void typeInto(char character) {
     Serial.printf("[roll] typed full: %s\n", entry.text);
 }
 
+/** @brief Put @p band in front of whatever the band would otherwise say, for a short while. */
+void showPresetBand(const ResultsBand& band) {
+    presetBand = band;
+    presetBandShown = true;
+    presetBandUntilMs = millis() + PRESET_MESSAGE_MS;
+}
+
+/**
+ * @brief Write the record, with the current choice as the one to come back to (ADR-0038).
+ *
+ * Called on every change of choice with no debounce: ESP-IDF compares the stored bytes against
+ * these and returns without writing when they match, so a change that stored nothing new reaches
+ * no flash. A write that does reach flash takes long enough to make that frame late, which is why
+ * it happens before the dice are launched rather than while they are flying.
+ */
+void rememberChoice() {
+    // A read that failed left the store's contents unknown, and it said so at boot. Writing over
+    // what could not be read would turn one failed read into lost presets, so the record stays as
+    // it is for the rest of the session.
+    if (!presetsWritable) return;
+    presets.last = choice;
+    uint8_t bytes[PRESET_RECORD_BYTES];
+    const size_t written = writePresets(presets, bytes, sizeof bytes);
+    // The buffer is the record's own size, so this cannot be short. The check is here because a
+    // silent zero would write an empty record over a good one.
+    if (written != PRESET_RECORD_BYTES) abort();
+    if (!hal.storage.writeRecord(bytes, written)) {
+        Serial.printf("[presets] write failed: %s\n", hal.storage.lastError());
+    }
+}
+
+/** @brief Say what @p choice is, for the lines that report one. */
+void printChoice(const DiceChoice& reported) {
+    Serial.printf("%s x%u mod=%+d", dieTypeName(reported.type), static_cast<unsigned>(reported.count),
+                  static_cast<int>(reported.modifier));
+}
+
+/**
+ * @brief Bring back the roll the device last threw, if a valid record was stored (ADR-0038).
+ *
+ * Nothing stored is a normal state and not a failure: the Launcher offers the player a command
+ * that formats the partition it shares with this firmware. A read that failed is a different
+ * thing and says so, because it is not the same as an empty store and must not pass for one.
+ */
+void restorePresets() {
+    uint8_t bytes[PRESET_RECORD_BYTES];
+    const StoredRecord stored = hal.storage.readRecord(bytes, sizeof bytes);
+    if (stored.failed) {
+        presetsWritable = false;
+        Serial.printf("[presets] read failed: %s, starting at ", hal.storage.lastError());
+        printChoice(choice);
+        Serial.println(", and nothing will be written over it this session");
+        return;
+    }
+    if (stored.size == 0) {
+        Serial.print("[presets] nothing stored, starting at ");
+        printChoice(choice);
+        Serial.println();
+        return;
+    }
+    if (!readPresets(bytes, stored.size, presets)) {
+        // Discarded whole rather than repaired: a repaired record is a choice the player never
+        // made (CLAUDE.md §4, invariant 9).
+        Serial.print("[presets] record refused, starting at ");
+        printChoice(choice);
+        Serial.println();
+        return;
+    }
+    choice = presets.last;
+    Serial.print("[presets] restored ");
+    printChoice(choice);
+    Serial.printf(", %u saved\n", static_cast<unsigned>(presets.savedSlots));
+}
+
+/**
+ * @brief What the two holds do, which was nothing before this slice (ADR-0038).
+ *
+ * The primary hold recalls the next saved slot and rolls it; the secondary hold keeps the current
+ * choice. Neither is a mode: there is nothing to be inside and nothing to leave, because the band
+ * has no pixels to say which mode the player is in.
+ *
+ * @return whether the hold was one of them, so every other action carries on to the choice.
+ */
+bool heldTook(InputAction action) {
+    if (action == InputAction::LONG_PRIMARY) {
+        const PresetRecall recall = recallPreset(presets, choice);
+        presets = recall.record;
+        if (!recall.found) {
+            // A hold on a device that has saved nothing says so rather than rolling something
+            // arbitrary, and writes nothing, because nothing changed.
+            Serial.println("[presets] recall: nothing saved");
+            showPresetBand(noPresetsBand());
+            return true;
+        }
+        choice = recall.choice;
+        Serial.printf("[presets] recalled %u: ", static_cast<unsigned>(recall.slot + 1));
+        printChoice(choice);
+        Serial.println();
+        showPresetBand(recalledBand(recall.slot));
+        rememberChoice();
+        launch();
+        return true;
+    }
+    if (action == InputAction::LONG_SECONDARY) {
+        const PresetSave saved = savePreset(presets, choice);
+        presets = saved.record;
+        Serial.printf("[presets] saved %u: ", static_cast<unsigned>(saved.slot + 1));
+        printChoice(choice);
+        Serial.println();
+        showPresetBand(savedBand(saved.slot));
+        rememberChoice();
+        return true;
+    }
+    return false;
+}
+
 /**
  * @brief What @p action means while an expression is being typed (ADR-0036).
  *
@@ -276,6 +412,7 @@ bool entryTook(InputAction action) {
         choice = parsed.choice;
         Serial.printf("[roll] typed %s accepted %s x%u mod=%+d\n", typed, dieTypeName(choice.type),
                       static_cast<unsigned>(choice.count), static_cast<int>(choice.modifier));
+        rememberChoice();
         launch();
         return true;
     }
@@ -283,17 +420,19 @@ bool entryTook(InputAction action) {
         backspaceEntry(entry);
         return true;
     }
-    // Everything else, the holds included, does nothing while the field is open. A hold could
-    // reasonably clear the whole field, and deliberately does not yet: it would be a control the
-    // StickC has no way to offer and nothing on screen explains.
+    // Everything else, the holds included, does nothing while the field is open. Outside the
+    // field the holds recall and save a preset (ADR-0038), and swallowing them here is deliberate:
+    // a recall mid expression would throw dice for a choice while another one was being typed.
     return true;
 }
 
 void press(InputAction action) {
     if (entryTook(action)) return;
+    if (heldTook(action)) return;
     const ChoiceChange change = applyAction(choice, action);
     if (!change.changed) return;
     choice = change.choice;
+    rememberChoice();
     launch();
 }
 
@@ -304,6 +443,8 @@ bool takeCommand(int byte) {
         case SerialCommand::PressPrimary: press(InputAction::PRIMARY); return true;
         case SerialCommand::PressSecondary: press(InputAction::SECONDARY); return true;
         case SerialCommand::Type: typeInto(request.character); return true;
+        case SerialCommand::HoldPrimary: press(InputAction::LONG_PRIMARY); return true;
+        case SerialCommand::HoldSecondary: press(InputAction::LONG_SECONDARY); return true;
         case SerialCommand::None: break;
     }
     return false;
@@ -386,6 +527,16 @@ void drawFrame(LGFX_Sprite& canvas) {
         // behind it (ADR-0009, ADR-0036).
         drawResultsBand(canvas, entryBand(entry), colors);
         return;
+    }
+    // A save or a recall holds the band for a moment, because the holds are the one pair of
+    // controls nothing on screen advertises and the band is the only place to confirm them
+    // (ADR-0038). It gives way to the roll a recall threw while the dice are still moving.
+    if (presetBandShown) {
+        if (static_cast<int32_t>(millis() - presetBandUntilMs) < 0) {
+            drawResultsBand(canvas, presetBand, colors);
+            return;
+        }
+        presetBandShown = false;
     }
     if (!rollReported || !everyDieLocked(results, world.dieCount)) {
         drawResultsBand(canvas, choiceBand(choice.type, choice.modifier), colors);
@@ -488,6 +639,7 @@ void setup() {
     const BootStep steps[] = {
         {"power", hal.power},   {"display", hal.display}, {"front canvas", front}, {"back canvas", back},
         {"input", hal.input},   {"imu", hal.imu},         {"audio", hal.audio}, {"rng", randomness},
+        {"storage", hal.storage},
     };
     const BootOutcome outcome = runBootSteps(steps, sizeof(steps) / sizeof(steps[0]), logStarted);
     if (outcome.failedStep != nullptr) haltOnFailure(outcome);
@@ -499,6 +651,10 @@ void setup() {
     // The bus transaction stays open for good: LovyanGFX's endWrite waits for the bus to go idle,
     // so closing it after each push would quietly make every push blocking (ADR-0007).
     hal.display.getDevice().startWrite();
+    // Before the ready line, so the ready line stays the last thing boot prints and a host that
+    // waited for it knows the store has already reported. It can only run once the storage step
+    // has started the store.
+    restorePresets();
     Serial.printf("[boot] %s ready\n", hal.boardName);
     launch();
     frameDeadlineUs = micros() + FRAME_PERIOD_US;

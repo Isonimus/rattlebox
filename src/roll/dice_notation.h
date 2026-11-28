@@ -15,14 +15,6 @@
  */
 
 /**
- * @brief The largest constant an expression may add or take.
- *
- * One digit, because the band has room for one: laid out, `D20+9 20 20 20 = 69` ends at 226 px of
- * the 240 and a second digit overflows it by 10 px (ADR-0036).
- */
-constexpr int8_t MODIFIER_LIMIT = 9;
-
-/**
  * @brief The most characters the entry field holds.
  *
  * The longest valid expression is `1d100+9`, seven characters. The field holds a few more so that

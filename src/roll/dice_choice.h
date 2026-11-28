@@ -13,6 +13,18 @@
  * can step the type and the count without touching it and the band shows it either way
  * (ADR-0036). Only a typed expression can set it, so it is zero on a board with no keyboard.
  */
+/**
+ * @brief The largest constant a choice's modifier may be, either way.
+ *
+ * One digit, because the band has room for one: laid out, `D20+9 20 20 20 = 69` ends at 226 px of
+ * the 240 and a second digit overflows it by 10 px (ADR-0036).
+ *
+ * It lives with the field it bounds rather than with the notation that was the first thing to set
+ * one. The band and the preset store both need the bound and neither parses an expression, so a
+ * constant in `dice_notation.h` made them depend on the grammar for a property of the choice.
+ */
+constexpr int8_t MODIFIER_LIMIT = 9;
+
 struct DiceChoice {
     DieType type;
     uint8_t count;

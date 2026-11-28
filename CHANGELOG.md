@@ -52,6 +52,18 @@ decisions behind each entry are in [`adr/`](adr/) and [`slices/`](slices/).
   expressions, `2d20kh1` and `4d6dl1`, are not in this release.
 - The M5StickC Plus 2 has no keyboard, so it has no field: its two buttons are the whole of its
   controls, exactly as before.
+- **The device remembers what you last rolled.** The dice, the count and the modifier come back
+  after the power is cut, so an expression typed on the Cardputer outlives the session instead of
+  dying with it. It used to start every time at one D20.
+- **Four presets, saved and recalled by holding a control.** Hold the second control to keep what
+  is set now, hold the first to step through what you saved and throw it, and the strip says which
+  slot it was. A fifth save replaces the oldest. The two holds did nothing before this release.
+- On the M5StickC Plus 2 a preset is the only way to reach a modifier, since it has no keyboard to
+  type one: save `3d6+2` from a Cardputer, or from a session that typed it, and the StickC can roll
+  it.
+- What is remembered lives in the device's own NVS namespace. A launcher that formats NVS wipes it,
+  and the device then starts again at one D20 with nothing saved rather than complaining.
+- Roll history, the other half of this feature, is not in this release.
 
 ## v0.1.1 (2026-11-23)
 

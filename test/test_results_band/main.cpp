@@ -8,8 +8,6 @@
 #include "../../src/render/results_band.cpp"
 #include "../../src/roll/die_catalog.h"
 #include "../../src/roll/die_catalog.cpp"
-#include "../../src/roll/dice_notation.h"
-#include "../../src/roll/dice_notation.cpp"
 #include "../../src/roll/roll_band.h"
 #include "../../src/roll/roll_band.cpp"
 

@@ -90,6 +90,15 @@ holds three dice, so `4d6` is refused, and a d% is two of them, so `2d100` is. T
 single digit, because that is what the strip has room for: `3d20+9` reads
 `D20+9 20 20 20 = 69` and fills it.
 
+**The device remembers what you last rolled.** Turn it off and on and the same dice, count and
+modifier come back, so an expression you typed outlives the session. It also keeps **four
+presets**: hold the second control to save what is set now, and hold the first to step through what
+you saved and throw it. The strip says which slot it saved or recalled, because the holds are the
+one pair of controls nothing on screen advertises.
+
+Presets are how the StickC reaches a modifier at all: it has no keyboard to type one, so a preset
+saved from a typed expression is the only way a `+2` gets onto that board.
+
 ## Controls
 
 | What it does | Cardputer ADV | M5StickC Plus 2 |
@@ -101,10 +110,15 @@ single digit, because that is what the strip has room for: `3d20+9` reads
 | Type an expression | the digits, `d`, `-` and `Shift`+`=` for `+` | |
 | Throw what you typed | `Enter` | |
 | Delete a character, and leave the field when it empties | `Backspace` | |
+| Recall the next saved preset and throw it | hold `Enter` | hold Button A |
+| Save what is set now as a preset | hold `Backspace` | hold Button B |
 
 Changing the dice throws the new set at once. While you are typing, `Enter` and `Backspace` belong
-to the field; empty it and they go back to what the table above says. The StickC has no keyboard,
-so it has no field: its buttons are the whole of its controls.
+to the field; empty it and they go back to what the table above says, holds included. The StickC
+has no keyboard, so it has no field: its buttons are the whole of its controls.
+
+What is remembered lives in the device's own NVS namespace. A launcher that offers to format NVS
+will wipe it, and the device then simply starts again at one D20 with nothing saved.
 
 ## Supported boards
 

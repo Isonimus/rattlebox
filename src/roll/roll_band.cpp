@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "dice_notation.h"
+#include "dice_choice.h"
 
 namespace {
 
